@@ -35,3 +35,7 @@ debug-*.log
 _*.out
 _*.err
 _*.txt
+_*.pkl
+
+# ── Claude Code local (لا ترفع) ──
+.claude/
