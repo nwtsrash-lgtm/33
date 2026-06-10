@@ -730,13 +730,13 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     """يحسب المنتجات المفقودة من المخزن الدائم (مستقل عن وظيفة الخلفية الهشّة).
 
     المصدر: our_catalog_saved.csv (أو our_df من الجلسة) × competitor_products_store.
-    يستخدم reconcile السريع (المعتمد على الفهارس) + smart_missing_barrier — نفس
-    مسار الوظيفة، فيُنتج نفس مخطّط الأعمدة الذي تتوقّعه صفحة المفقودة.
+    يستخدم CompetitorIntelligence.find_missing_products — مطابقة بصمات دقيقة
+    (set lookup O(1)) لا ضبابية، فينجز المخزن الكامل (108k) في ثوانٍ معدودة،
+    ثم يحوّل الناتج إلى مخطّط الأعمدة العربية الذي تتوقّعه صفحة المفقودة.
 
-    _our_sig: توقيع للكاش فقط (يُغيَّر عند تغيّر الكتالوج لإبطال الكاش).
-    يُعيد DataFrame للمفقودات (قد يكون فارغاً إن لا مخزن/كتالوج).
+    _our_sig: توقيع للكاش فقط. يُعيد DataFrame للمفقودات (قد يكون فارغاً).
     """
-    import os as _cm_os, sqlite3 as _cm_sql
+    import os as _cm_os
     # 1) كتالوجنا: من الجلسة إن وُجد، وإلا من الملف المحفوظ
     our_df = st.session_state.get("our_df")
     if not isinstance(our_df, pd.DataFrame) or our_df.empty:
@@ -750,31 +750,41 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         our_df = _res[0] if isinstance(_res, tuple) else _res
     if not isinstance(our_df, pd.DataFrame) or our_df.empty:
         return pd.DataFrame()
-    # 2) منافسون: من competitor_products_store الدائم
+    # 2) كشف سريع بالبصمة من المخزن الدائم
     _db = _cm_os.path.join(_cm_os.environ.get("DATA_DIR", "data"), "pricing_v18.db")
     if not _cm_os.path.exists(_db):
         return pd.DataFrame()
-    _con = _cm_sql.connect(_db)
     try:
-        store = pd.read_sql(
-            "SELECT competitor, product_name, price, image_url, product_url, brand, size "
-            "FROM competitor_products_store WHERE product_name IS NOT NULL AND price > 0", _con)
-    finally:
-        _con.close()
-    if store.empty:
-        return pd.DataFrame()
-    store = store.rename(columns={
-        "product_name": "اسم المنتج", "price": "السعر", "image_url": "صورة المنتج",
-        "product_url": "رابط المنتج", "brand": "الماركة", "size": "الحجم"})
-    comp_dfs = {c: g.reset_index(drop=True) for c, g in store.groupby("competitor")}
-    # 3) نفس مسار الوظيفة: reconcile + barrier (مخطط أعمدة متوافق)
-    try:
-        rec = reconcile_competitor_upload(our_df, comp_dfs)
-        missing_df = smart_missing_barrier(rec.new_products_df, our_df)
+        from engines.competitor_intelligence import CompetitorIntelligence as _CIm
+        _ci = _CIm(db_path=_db)
+        _prods, _total = _ci.find_missing_products(our_df, page=0, per_page=1000000)
     except Exception:
-        raw = find_missing_products(our_df, comp_dfs)
-        missing_df = smart_missing_barrier(raw, our_df)
-    return missing_df if isinstance(missing_df, pd.DataFrame) else pd.DataFrame()
+        return pd.DataFrame()
+    if not _prods:
+        return pd.DataFrame()
+    # 3) تحويل لمخطّط صفحة المفقودة (الأعمدة العربية)
+    rows = []
+    for p in _prods:
+        _nm = str(p.get("product_name", "") or "")
+        _comp_list = p.get("competitors_list") or []
+        rows.append({
+            "منتج_المنافس": _nm,
+            "سعر_المنافس":  float(p.get("min_price", 0) or 0),
+            "الماركة":      str(p.get("brand", "") or ""),
+            "المنافس":      (_comp_list[0] if _comp_list else "") or f"{p.get('competitor_count', 1)} متجر",
+            "الحجم":        "",
+            "النوع":        "",
+            "تصنيف_المنتج": str(p.get("category", "") or ""),
+            "صورة_المنافس": str(p.get("image_url", "") or ""),
+            "رابط_المنافس": "",
+            "السعر_المقترح": float(p.get("suggested_price", 0) or 0),
+            "نوع_متاح":     "",
+            "مستوى_الثقة":  "green",   # مطابقة بصمة دقيقة ⇒ ثقة عالية
+            "درجة_التشابه": 0,
+            "هو_تستر":      ("تستر" in _nm) or ("tester" in _nm.lower()),
+            "عدد_المنافسين": int(p.get("competitor_count", 1) or 1),
+        })
+    return pd.DataFrame(rows)
 
 
 def _dedup_missing_vs_matched(results: dict) -> dict:
