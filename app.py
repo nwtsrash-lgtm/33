@@ -85,6 +85,7 @@ SECTIONS = [
     "🟢 سعر أقل",
     "✅ موافق عليها",
     "🔍 منتجات مفقودة",
+    "⚪ المستبعدة",
     "✅ تمت المعالجة",
     "🕷️ كشط المنافسين",
     "⚙️ الإعدادات",
@@ -92,7 +93,7 @@ SECTIONS = [
 from styles import (get_styles, vs_card, comp_strip, miss_card,
                     get_sidebar_toggle_js, lazy_img_tag, linked_product_title,
                     render_kpi_row, render_active_filter_chips_html,
-                    render_changes_table)
+                    render_changes_table, render_excluded_table)
 from engines.mahwous_core import validate_export_product_dataframe
 from engines.engine import (read_file, run_full_analysis, find_missing_products,
                              smart_missing_barrier, prepare_missing_for_upload,
@@ -5461,6 +5462,56 @@ elif page == "🔍 منتجات مفقودة":
             st.success("✅ لا توجد منتجات مفقودة!")
     else:
         st.info("ارفع الملفات أولاً")
+
+# ════════════════════════════════════════════════
+#  المستبعدة — منتجاتنا التي لم تُصنَّف في سلة سعرية (الشرط 9)
+# ════════════════════════════════════════════════
+elif page == "⚪ المستبعدة":
+    st.header("⚪ المنتجات المستبعدة")
+    st.caption("منتجاتنا التي لم تدخل أي سلة سعرية — مع سبب الاستبعاد لكل منتج")
+    db_log("excluded", "view")
+    _exc_df = None
+    if st.session_state.results and isinstance(st.session_state.results, dict):
+        _exc_df = st.session_state.results.get("excluded")
+    if isinstance(_exc_df, pd.DataFrame) and not _exc_df.empty:
+        _exc_view = _exc_df.copy()
+        # عمود السبب: سبب_التصنيف إن وُجد، وإلا القرار (الذي يحوي سبب الاستبعاد)
+        if "سبب_التصنيف" in _exc_view.columns and _exc_view["سبب_التصنيف"].astype(str).str.strip().replace("nan", "").any():
+            _reason = _exc_view["سبب_التصنيف"].fillna("").astype(str).str.strip()
+            _reason = _reason.where(_reason != "", _exc_view.get("القرار", "غير محدد"))
+        else:
+            _reason = _exc_view.get("القرار", pd.Series(["غير محدد"] * len(_exc_view))).fillna("غير محدد").astype(str).str.strip()
+        _reason = _reason.replace("", "غير محدد")
+        _exc_view["__reason__"] = _reason
+
+        # عدّاد + توزيع الأسباب (أرقام حقيقية)
+        render_kpi_row({"total": len(_exc_view), "raise": 0, "lower": 0,
+                        "approved": 0, "missing": 0})
+        _reason_counts = _reason.value_counts()
+        _c1, _c2 = st.columns([1, 2])
+        with _c1:
+            _reason_opts = ["الكل"] + _reason_counts.index.tolist()
+            _sel_reason = st.selectbox("🔍 فلتر بالسبب", _reason_opts, key="exc_reason_filter")
+        with _c2:
+            _dist = " · ".join(f"{r}: {c:,}" for r, c in _reason_counts.head(6).items())
+            st.caption(f"📊 توزيع الأسباب: {_dist}")
+
+        _filtered_exc = _exc_view if _sel_reason == "الكل" else _exc_view[_reason == _sel_reason]
+        st.caption(f"عرض {len(_filtered_exc):,} من {len(_exc_view):,} منتج مستبعد")
+
+        _es, _ee, _ep = render_pagination(len(_filtered_exc), 50, "exc")
+        render_excluded_table(_filtered_exc.iloc[_es:_ee].to_dict("records"))
+
+        # تصدير CSV للمستبعدة (مع السبب)
+        _exc_csv = _filtered_exc[[c for c in ["المنتج", "الماركة", "السعر", "النوع", "الحجم", "__reason__"]
+                                  if c in _filtered_exc.columns]].rename(
+            columns={"__reason__": "سبب_الاستبعاد"}).to_csv(index=False, encoding="utf-8-sig")
+        st.download_button("📥 تصدير المستبعدة (CSV)", data=_exc_csv,
+                           file_name="mahwous_excluded.csv", mime="text/csv")
+    elif st.session_state.results:
+        st.success("✅ لا توجد منتجات مستبعدة — كل منتجاتنا دخلت سلة سعرية.")
+    else:
+        st.info("شغّل تحليلاً أولاً لعرض المنتجات المستبعدة.")
 
 # ════════════════════════════════════════════════
 #  تمت المعالجة — v26

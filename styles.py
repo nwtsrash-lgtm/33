@@ -868,6 +868,32 @@ def render_active_filter_chips_html(filters: dict) -> str:
     return f'<div dir="rtl" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px">{chips}</div>'
 
 
+def render_excluded_table(rows) -> None:
+    """جدول HTML خفيف للمنتجات المستبعدة مع عمود «لماذا» (السبب)."""
+    import streamlit as st
+    rows = list(rows or [])
+    if not rows:
+        st.info("لا توجد منتجات مستبعدة")
+        return
+    body = []
+    for r in rows:
+        price = _safe_float(r.get("السعر", 0))
+        body.append(
+            "<tr>"
+            f'<td class="ct-name">{_html_escape(str(r.get("المنتج", "—"))[:70])}</td>'
+            f'<td class="ct-store">{_html_escape(str(r.get("الماركة", "—"))[:24])}</td>'
+            f'<td class="ct-num">{price:,.0f}</td>'
+            f'<td class="ex-reason">{_html_escape(str(r.get("__reason__", "—"))[:70])}</td>'
+            "</tr>"
+        )
+    st.markdown(
+        '<div class="ct-wrap" dir="rtl"><table class="changes-table">'
+        "<thead><tr><th>المنتج</th><th>الماركة</th><th>سعرنا</th><th>لماذا استُبعد</th></tr></thead>"
+        "<tbody>" + "".join(body) + "</tbody></table></div>",
+        unsafe_allow_html=True,
+    )
+
+
 def render_changes_table(changes, limit: int = 200) -> None:
     """جدول HTML خفيف لتغييرات الأسعار (بدل st.dataframe الثقيل)."""
     import streamlit as st
@@ -988,5 +1014,6 @@ _V32_CSS = """<style>
 .changes-table .ct-name{color:#E2E8F0;font-weight:600}
 .changes-table .ct-store{color:#82B1FF}
 .changes-table .ct-date{color:#64748B;white-space:nowrap;font-size:.72rem}
+.changes-table .ex-reason{color:#94A3B8;font-size:.74rem}
 @media (max-width:640px){.v32-arena{flex-direction:column;gap:12px}.v32-vs-col{flex-direction:row;padding:8px 0;min-width:unset}.v32-big-price{font-size:1.4rem}.miss-card-inner{flex-direction:column}}
 </style>"""
