@@ -1049,7 +1049,8 @@ def _render_analysis_job_progress_live() -> None:
     jid = st.session_state.get("job_id")
     if not jid:
         return
-    job = get_job_progress(jid)
+    # ⚡ perf: فحص الحالة خفيف (2.4ms) كل 4 ثوانٍ بدل الثقيل (1155ms على 71MB)
+    job = get_job_progress(jid, light=True)
     if not job:
         return
     _st = str(job.get("status", ""))
@@ -1057,7 +1058,8 @@ def _render_analysis_job_progress_live() -> None:
     if _st == "done":
         if st.session_state.get("_applied_job_results_id") == jid:
             return  # تم تطبيقه سابقاً — لا تكرار
-        if job.get("results"):
+        job = get_job_progress(jid)  # heavy: النتائج الكاملة مرة واحدة عند الاكتمال
+        if job and job.get("results"):
             try:
                 _rs = restore_results_from_json(job["results"])
                 _df = pd.DataFrame(_rs)
@@ -1071,7 +1073,7 @@ def _render_analysis_job_progress_live() -> None:
             except Exception as _frag_err:
                 import logging as _frag_log
                 _frag_log.warning("Fragment result apply failed: %s", _frag_err)
-        st.session_state.last_audit_stats = job.get("audit") or {}
+        st.session_state.last_audit_stats = (job.get("audit") if job else {}) or {}
         st.session_state.job_running = False
         st.session_state["_applied_job_results_id"] = jid
         # ✅ Flag بدلاً من st.rerun() — يُلتقط خارج الـ fragment
@@ -3091,7 +3093,9 @@ with st.sidebar:
 
     # حالة المعالجة — تحديث حي مع auto-rerun + نتائج جزئية
     if st.session_state.job_id:
-        job = get_job_progress(st.session_state.job_id)
+        # ⚡ perf: فحص الحالة خفيف (2.4ms) في كل rerun بدل الثقيل (1155ms على 71MB).
+        # النتائج الكاملة تُحمَّل (الثقيل) فقط داخل الفروع التي تحتاجها فعلاً.
+        job = get_job_progress(st.session_state.job_id, light=True)
         if job:
             _job_status = str(job.get("status", ""))
             if _job_status == "running":
@@ -3101,8 +3105,9 @@ with st.sidebar:
                 _sb_pct = _sb_proc / _sb_tot
                 st.progress(min(_sb_pct, 0.99))
                 st.markdown(f"**⚙️ تحليل: {_sb_proc:,}/{_sb_tot:,} ({100*_sb_pct:.0f}%)**")
-                # ── تحميل النتائج الجزئية أثناء التحليل ──
-                if job.get("results"):
+                # ── تحميل النتائج الجزئية أثناء التحليل (الثقيل، فقط أثناء running) ──
+                job = get_job_progress(st.session_state.job_id)  # heavy: نحتاج results
+                if job and job.get("results"):
                     try:
                         _partial = restore_results_from_json(job["results"])
                         _pdf = pd.DataFrame(_partial)
@@ -3121,7 +3126,10 @@ with st.sidebar:
             elif _job_status == "done":
                 if st.session_state.get("_applied_job_results_id") != st.session_state.job_id:
                     st.session_state["_applied_job_results_id"] = st.session_state.job_id
-                    if job.get("results"):
+                    # الثقيل (json.loads 71MB) يُنفَّذ هنا **مرة واحدة فقط** عند أول
+                    # تطبيق — بعدها يحرس _applied_job_results_id فيبقى الفحص خفيفاً.
+                    job = get_job_progress(st.session_state.job_id)  # heavy: once
+                    if job and job.get("results"):
                         try:
                             _restored = restore_results_from_json(job["results"])
                             df_all = pd.DataFrame(_restored)
@@ -3764,10 +3772,10 @@ if page == "📊 لوحة التحكم":
             or "?"
         )
 
-        # ══ قراءة التقدم مباشرة من DB (أدق من any_running_job) ══
+        # ══ قراءة التقدم مباشرة من DB (أدق من any_running_job) — خفيف (2.4ms) ══
         _live_job = None
         try:
-            _live_job = get_job_progress(_lock_jid)
+            _live_job = get_job_progress(_lock_jid, light=True)
         except Exception:
             pass
         _lock_proc = int((_live_job or {}).get("processed", 0) or (_db_running_job or {}).get("processed", 0))
@@ -3788,10 +3796,11 @@ if page == "📊 لوحة التحكم":
             st.progress(0.05, "⚙️ جارٍ التجهيز...")
             st.info(f"⏳ التحليل بدأ (Job: `{_lock_jid}`) — اضغط «تحديث» بعد ثوانٍ.")
 
-        # ══ تحميل النتائج الجزئية أثناء التحليل ══
+        # ══ تحميل النتائج الجزئية أثناء التحليل (الثقيل، فقط عند وجود وظيفة حية) ══
         try:
-            if _live_job and _live_job.get("results"):
-                _partial_recs = restore_results_from_json(_live_job["results"])
+            _full_job = get_job_progress(_lock_jid) if _live_job else None  # heavy: للنتائج
+            if _full_job and _full_job.get("results"):
+                _partial_recs = restore_results_from_json(_full_job["results"])
                 _partial_df = pd.DataFrame(_partial_recs)
                 if not _partial_df.empty:
                     _partial_r = _split_results(_partial_df)
@@ -3800,7 +3809,7 @@ if page == "📊 لوحة التحكم":
                     if isinstance(_prev_miss, pd.DataFrame) and not _prev_miss.empty:
                         _partial_r["missing"] = _prev_miss
                     else:
-                        _partial_r["missing"] = pd.DataFrame(_live_job.get("missing", []) or [])
+                        _partial_r["missing"] = pd.DataFrame(_full_job.get("missing", []) or [])
                     st.session_state.results = _partial_r
                     st.session_state.analysis_df = _partial_df
                     st.caption(f"📊 {len(_partial_df):,} نتيجة جزئية معروضة في الأقسام")
