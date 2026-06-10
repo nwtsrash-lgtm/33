@@ -127,14 +127,19 @@ def _sanitize_alt_text(text: str) -> str:
 def _resolve_brand_safe(raw_brand: str) -> str:
     # FIX: Salla Strict CSV Validation
     brand_raw = _safe_str(raw_brand)
-    if not brand_raw or brand_raw in ("غير متوفر", "غير محدد"):
+    if not brand_raw or brand_raw in ("غير متوفر", "غير محدد", "nan", "None"):
         return ""
     try:
         mgr = brand_manager.BrandManager.get_instance()
         matched = mgr._fuzzy_match_known(brand_raw)  # type: ignore[attr-defined]
-        return _safe_str(matched) if matched else ""
+        if matched:
+            return _safe_str(matched)
     except Exception:
-        return ""
+        pass
+    # احتياط: لا تُفرّغ ماركة حقيقية لمجرّد غيابها عن قائمة معروفة —
+    # نظّفها وأعِدها (طلب المالك: لا تُترك الماركة فارغة).
+    _clean = brand_raw.strip().strip("-•|").strip()
+    return _clean[:60]
 
 
 def _sanitize_category_safe(raw_cat, export_mode="safe"):

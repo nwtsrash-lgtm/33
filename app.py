@@ -812,6 +812,23 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         _ex = _cand.get(_bb)
         if _ex is None or _price < _ex[1]:
             _cand[_bb] = (p, _price)
+    # دوال التصنيف/الماركة (إثراء الماركات أولاً لملء العربية)
+    from engines.engine import (is_sample as _is_sample, is_tester as _is_tester,
+                                 classify_product_category as _classify_cat,
+                                 extract_brand as _extract_brand, enrich_known_brands as _enrich)
+    try:
+        _enrich(db_path=_db)  # يملأ KNOWN_BRANDS بماركات المنافسين (عربي+إنجليزي)
+    except Exception:
+        pass
+
+    def _item_type(nm: str) -> str:
+        _l = nm.lower()
+        if _is_sample(nm) or "ديكانت" in nm or "تقسيم" in nm:
+            return "sample"
+        if _is_tester(nm) or "تستر" in nm or "tester" in _l:
+            return "tester"
+        return "retail"
+
     # 3) طبقة ضبابية محجوبة بالكلمات: أزِل ما نملكه فعلاً باسم مختلف
     rows = []
     for _bb, (p, _price) in _cand.items():
@@ -826,21 +843,28 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             continue  # نملكه باسم مختلف ⇒ ليس مفقوداً
         _nm = str(p.get("product_name", "") or "")
         _comp_list = p.get("competitors_list") or []
+        # الماركة: حقل المخزن أولاً، ثم استخراج ذكي — لا نتركها فارغة
+        _brand = str(p.get("brand", "") or "").strip()
+        if not _brand or _brand.lower() in ("nan", "none", "غير محدد"):
+            _brand = _extract_brand(_nm) or ""
+        # التصنيف الصحيح
+        _cat = str(p.get("category", "") or "").strip() or _classify_cat(_nm)
         rows.append({
             "منتج_المنافس": _nm,
             "سعر_المنافس":  _price,
-            "الماركة":      str(p.get("brand", "") or ""),
+            "الماركة":      _brand,
             "المنافس":      (_comp_list[0] if _comp_list else "") or f"{p.get('competitor_count', 1)} متجر",
             "الحجم":        "",
             "النوع":        "",
-            "تصنيف_المنتج": str(p.get("category", "") or ""),
+            "تصنيف_المنتج": _cat,
             "صورة_المنافس": str(p.get("image_url", "") or ""),
             "رابط_المنافس": "",
             "السعر_المقترح": float(p.get("suggested_price", 0) or 0),
             "نوع_متاح":     "",
             "مستوى_الثقة":  "green",
             "درجة_التشابه": 0,
-            "هو_تستر":      ("تستر" in _nm) or ("tester" in _nm.lower()),
+            "هو_تستر":      _item_type(_nm) == "tester",
+            "نوع_السلعة":   _item_type(_nm),   # retail / tester / sample
             "عدد_المنافسين": int(p.get("competitor_count", 1) or 1),
         })
     return pd.DataFrame(rows)
@@ -4718,18 +4742,41 @@ elif page == "🔍 منتجات مفقودة":
                 with _fc3:
                     st.caption(f"📊 التوزيع: {_cat_parts}")
 
-            # ── تصدير مباشر لكل المفقودات المعروضة → قالب سلة الشامل (الشرط 3) ──
-            # توليد عند الطلب (لتفادي إعادة البناء البطيء في كل rerun) ثم تحميل.
+            # ── تصدير جاهز للرفع → قالب سلة الشامل (الشرط 3) — مع فصل retail/تستر/عينة ──
             st.markdown("##### 📦 تصدير جاهز للرفع — قالب سلة الشامل (40 عمود)")
+            # تصنيف نوع السلعة (retail/tester/sample) — يُحسب من المخزن أو fallback من الاسم
+            if "نوع_السلعة" in filtered.columns:
+                _itype = filtered["نوع_السلعة"].fillna("retail").astype(str)
+            else:
+                _nm_s = filtered.get("منتج_المنافس", pd.Series([""] * len(filtered))).astype(str)
+                _itype = pd.Series(
+                    [("sample" if (("عينة" in n) or ("عينه" in n) or ("sample" in n.lower())
+                                   or ("ديكانت" in n) or ("مينياتشر" in n) or ("تقسيم" in n))
+                      else "tester" if (("تستر" in n) or ("tester" in n.lower()))
+                      else "retail") for n in _nm_s],
+                    index=filtered.index,
+                )
+            _n_retail = int((_itype == "retail").sum())
+            _n_tester = int((_itype == "tester").sum())
+            _n_sample = int((_itype == "sample").sum())
+            _ic1, _ic2, _ic3 = st.columns(3)
+            _ic1.metric("🛍️ مفقود حقيقي (retail)", f"{_n_retail:,}")
+            _ic2.metric("🧪 تستر", f"{_n_tester:,}")
+            _ic3.metric("💧 عينة/ديكانت", f"{_n_sample:,}")
+            # العينات تُستبعد دائماً من ملف الإضافة؛ التستر خيار (الافتراضي: مُضمَّن — قرار المالك)
+            _inc_tester = st.toggle("🧪 تضمين التستر في ملف الإضافة", value=True, key="miss_exp_inc_tester")
+            st.caption("💧 العينات/الديكانت مُستبعَدة دائماً (ليست منتجات للبيع كجديد).")
+            _exp_types = ["retail"] + (["tester"] if _inc_tester else [])
+            _export_src = filtered[_itype.isin(_exp_types)]
             _exp_d1, _exp_d2 = st.columns([1, 1])
             with _exp_d1:
-                if st.button(f"⚙️ توليد ملف سلة لكل المعروض ({len(filtered):,})",
+                if st.button(f"⚙️ توليد ملف سلة ({len(_export_src):,} منتج)",
                              key="miss_direct_salla_gen", use_container_width=True):
-                    with st.spinner(f"⚙️ جارٍ بناء ملف سلة لـ {len(filtered):,} منتج "
-                                     "(اسم منسّق + ماركة + تصنيف + حجم + صورة + سعر مقترح + وصف مهووس)…"):
+                    with st.spinner(f"⚙️ جارٍ بناء ملف سلة لـ {len(_export_src):,} منتج "
+                                     "(اسم + ماركة + تصنيف + حجم + صورة + سعر مقترح + وصف)…"):
                         try:
                             _xb_salla = export_to_salla_shamel(
-                                filtered, st.session_state.get("analysis_df"),
+                                _export_src, st.session_state.get("analysis_df"),
                                 verify_missing=False,
                                 export_mode=st.session_state.get("salla_export_mode", "safe"),
                             )
