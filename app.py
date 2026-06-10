@@ -336,11 +336,18 @@ def _load_our_catalog_cached(path: str, _mtime: float) -> pd.DataFrame:
     فيخفّ session_state بشدة (إقلاع أسرع + نقل أخف + تفاعل أسرع). _mtime يُبطل
     الكاش تلقائياً عند تغيّر الملف.
     """
-    _df = pd.read_csv(path, encoding="utf-8-sig")
-    _drop = [c for c in _df.columns
-             if c == "رابط المنتج" or str(c).startswith("[")]
-    if _drop:
-        _df = _df.drop(columns=_drop, errors="ignore")
+    # تجاهل الأعمدة الضخمة عند القراءة نفسها (usecols) — يخفّض ذروة الذاكرة وزمن القراءة
+    def _keep(col):
+        c = str(col)
+        return not (c == "رابط المنتج" or c.startswith("["))
+    try:
+        _df = pd.read_csv(path, encoding="utf-8-sig", usecols=_keep)
+    except Exception:
+        # fallback: اقرأ الكل ثم أسقط (لو فشل usecols لأي سبب)
+        _df = pd.read_csv(path, encoding="utf-8-sig")
+        _df = _df.drop(columns=[c for c in _df.columns
+                                if c == "رابط المنتج" or str(c).startswith("[")],
+                       errors="ignore")
     return _df
 
 
