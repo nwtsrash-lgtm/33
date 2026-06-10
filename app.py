@@ -1291,39 +1291,10 @@ if st.session_state.results is None and not st.session_state.job_running:
                 except Exception:
                     pass
 
-            # v31.11c: إذا لا زالت فارغة، احسبها من الكتالوج المحفوظ والمنافسين
-            if _auto_miss.empty:
-                try:
-                    import os as _miss_os
-                    _cat_path = _miss_os.path.join(_miss_os.environ.get("DATA_DIR", "data"), "our_catalog_saved.csv")
-                    if _miss_os.path.exists(_cat_path):
-                        _miss_our = pd.read_csv(_cat_path, encoding="utf-8-sig")
-                        _miss_conn2 = get_db()
-                        try:
-                            _miss_rows = _miss_conn2.execute(
-                                "SELECT competitor, product_name, price, image_url, product_url "
-                                "FROM competitor_products_store WHERE price > 0 LIMIT 150000"
-                            ).fetchall()
-                        finally:
-                            _miss_conn2.close()
-                        if _miss_rows:
-                            _miss_comp = {}
-                            for _mr in _miss_rows:
-                                _miss_comp.setdefault(_mr["competitor"], []).append({
-                                    "المنتج": _mr["product_name"],
-                                    "السعر": _mr["price"],
-                                    "صورة المنتج": _mr["image_url"] or "",
-                                    "رابط المنتج": _mr["product_url"] or "",
-                                })
-                            _miss_cdfs = {k: pd.DataFrame(v) for k, v in _miss_comp.items()}
-                            _auto_miss = find_missing_products(_miss_our, _miss_cdfs)
-                            _auto_miss = smart_missing_barrier(_auto_miss, _miss_our)
-                            # حفظها في session state للاستخدام لاحقاً
-                            st.session_state["our_df"] = _miss_our
-                            st.session_state["comp_dfs"] = _miss_cdfs
-                except Exception as _miss_calc_err:
-                    import logging as _miss_calc_log
-                    _miss_calc_log.warning("Auto missing calc on startup failed: %s", _miss_calc_err)
+            # ملاحظة أداء (شرط 1): لا نحسب المفقودات تلقائياً عند الإقلاع — كان
+            # هذا يقرأ CSV كامل (226MB) + يجلب 150K صف + مطابقة ضبابية بطيئة فيُثقل
+            # الإقلاع وsession_state. بدلاً منه: صفحة «المفقودة» تعرض زر حساب سريع
+            # (بصمة مُخبّأة، ثوانٍ) عند الطلب. تبقى _auto_miss من الوظيفة إن وُجدت.
 
             _auto_r = _split_results(_auto_df)
             # FIX: لف _auto_resolve_review بحماية — فشله لا يمنع تحميل النتائج
