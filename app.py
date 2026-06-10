@@ -725,18 +725,45 @@ def _reconciliation_check(results: dict) -> dict:
 
 
 
+_MISS_STOP = set(
+    "عطر عينه عينة تستر سامبل ماء او دو دي بارفيوم برفيوم بارفان تواليت توالت "
+    "كولونيا كولن مل غرام للرجال للنساء رجالي نسائي".split()
+)
+
+
+def _miss_bare(nm: str) -> str:
+    """اسم مجرّد للمطابقة: تطبيع + إزالة الكلمات الشائعة/الأرقام/القصيرة."""
+    import re as _re
+    from engines.engine import normalize_name as _nn
+    return " ".join(
+        t for t in _nn(str(nm)).split()
+        if t not in _MISS_STOP and not _re.fullmatch(r"\d+", t) and len(t) >= 2
+    )
+
+
+def _miss_toks(bare: str) -> list:
+    """أهم 4 كلمات دالّة (≥4 أحرف) للحجب (blocking)."""
+    return [t for t in bare.split() if len(t) >= 4][:4]
+
+
 @st.cache_data(show_spinner=False, ttl=1800)
 def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
-    """يحسب المنتجات المفقودة من المخزن الدائم (مستقل عن وظيفة الخلفية الهشّة).
+    """يحسب المنتجات المفقودة الحقيقية من المخزن الدائم (مستقل عن الوظيفة الهشّة).
 
-    المصدر: our_catalog_saved.csv (أو our_df من الجلسة) × competitor_products_store.
-    يستخدم CompetitorIntelligence.find_missing_products — مطابقة بصمات دقيقة
-    (set lookup O(1)) لا ضبابية، فينجز المخزن الكامل (108k) في ثوانٍ معدودة،
-    ثم يحوّل الناتج إلى مخطّط الأعمدة العربية الذي تتوقّعه صفحة المفقودة.
+    خط أنابيب الدقة (يصحّح تضخّم البصمة وإيجابياتها الكاذبة):
+      1) مرشّحون سريعون: CompetitorIntelligence.find_missing_products (بصمة O(1)).
+      2) إزالة تكرار المتاجر: دمج بالاسم المجرّد (يطوي التستر/الحجم/الصياغة)،
+         مع تتبّع أرخص سعر + عدد المتاجر.
+      3) طبقة تحقّق ضبابية محجوبة بالكلمات (token-blocking عبر فهرس مقلوب):
+         كل مرشّح يُقارَن ضبابياً فقط مع منتجاتنا التي تشترك معه بكلمة دالّة.
+         إن وُجد تشابه ≥ العتبة ⇒ نملكه باسم مختلف ⇒ ليس مفقوداً.
+      ⇒ النتيجة: مفقودات فريدة حقيقية (لا تضخّم البصمة)، في ثوانٍ معدودة.
 
-    _our_sig: توقيع للكاش فقط. يُعيد DataFrame للمفقودات (قد يكون فارغاً).
+    _our_sig: توقيع للكاش فقط. يُعيد DataFrame بمخطّط صفحة المفقودة.
     """
     import os as _cm_os
+    from rapidfuzz import fuzz as _fz, process as _pr
+    _TH = 82  # عتبة «نملكه» (مثبتة بتحقّق عيّنة يدوي: 0 إيجابيات كاذبة)
     # 1) كتالوجنا: من الجلسة إن وُجد، وإلا من الملف المحفوظ
     our_df = st.session_state.get("our_df")
     if not isinstance(our_df, pd.DataFrame) or our_df.empty:
@@ -750,7 +777,7 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         our_df = _res[0] if isinstance(_res, tuple) else _res
     if not isinstance(our_df, pd.DataFrame) or our_df.empty:
         return pd.DataFrame()
-    # 2) كشف سريع بالبصمة من المخزن الدائم
+    # مرشّحون من البصمة
     _db = _cm_os.path.join(_cm_os.environ.get("DATA_DIR", "data"), "pricing_v18.db")
     if not _cm_os.path.exists(_db):
         return pd.DataFrame()
@@ -762,14 +789,46 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         return pd.DataFrame()
     if not _prods:
         return pd.DataFrame()
-    # 3) تحويل لمخطّط صفحة المفقودة (الأعمدة العربية)
-    rows = []
+    # فهرس مقلوب لمنتجاتنا: كلمة دالّة → مجموعة الأسماء المجرّدة
+    _ncol = None
+    for _c in our_df.columns:
+        if any(k in str(_c) for k in ("اسم", "المنتج", "name", "product")):
+            _ncol = _c
+            break
+    if _ncol is None:
+        _ncol = our_df.columns[0]
+    _inv: dict = {}
+    for _onm in our_df[_ncol].dropna().astype(str):
+        _ob = _miss_bare(_onm)
+        for _t in _miss_toks(_ob):
+            _inv.setdefault(_t, set()).add(_ob)
+    # 2) دمج المرشّحين بالاسم المجرّد (إزالة تكرار المتاجر/الحجم/الصياغة)
+    _cand: dict = {}
     for p in _prods:
+        _bb = _miss_bare(p.get("product_name", ""))
+        if not _bb:
+            continue
+        _price = float(p.get("min_price", 0) or 0)
+        _ex = _cand.get(_bb)
+        if _ex is None or _price < _ex[1]:
+            _cand[_bb] = (p, _price)
+    # 3) طبقة ضبابية محجوبة بالكلمات: أزِل ما نملكه فعلاً باسم مختلف
+    rows = []
+    for _bb, (p, _price) in _cand.items():
+        _cset: set = set()
+        for _t in _miss_toks(_bb):
+            _b = _inv.get(_t)
+            if _b:
+                _cset |= _b
+            if len(_cset) > 120:
+                break
+        if _cset and _pr.extractOne(_bb, list(_cset), scorer=_fz.token_set_ratio, score_cutoff=_TH):
+            continue  # نملكه باسم مختلف ⇒ ليس مفقوداً
         _nm = str(p.get("product_name", "") or "")
         _comp_list = p.get("competitors_list") or []
         rows.append({
             "منتج_المنافس": _nm,
-            "سعر_المنافس":  float(p.get("min_price", 0) or 0),
+            "سعر_المنافس":  _price,
             "الماركة":      str(p.get("brand", "") or ""),
             "المنافس":      (_comp_list[0] if _comp_list else "") or f"{p.get('competitor_count', 1)} متجر",
             "الحجم":        "",
@@ -779,7 +838,7 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             "رابط_المنافس": "",
             "السعر_المقترح": float(p.get("suggested_price", 0) or 0),
             "نوع_متاح":     "",
-            "مستوى_الثقة":  "green",   # مطابقة بصمة دقيقة ⇒ ثقة عالية
+            "مستوى_الثقة":  "green",
             "درجة_التشابه": 0,
             "هو_تستر":      ("تستر" in _nm) or ("tester" in _nm.lower()),
             "عدد_المنافسين": int(p.get("competitor_count", 1) or 1),
