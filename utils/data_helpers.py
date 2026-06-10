@@ -223,8 +223,25 @@ def safe_results_for_json(results_list):
                 except (TypeError, ValueError):
                     pass
                 row[k] = v
+        # ⚡ perf/قرص: لا تكتب وصف HTML الميت في results_json (يُضخّمه ~71MB→~3MB)
+        _drop_nonurl_desc_blob(row)
         safe.append(row)
     return safe
+
+
+# أعمدة «رابط منتجنا» — يُفترض أن تحمل URL. في كتالوج محوس تحمل وصف HTML
+# كامل (≈6.9KB/صف × 7.8K صف ≈ 206MB) لا رابطاً. لا أحد يستهلك هذا الوصف من هنا
+# (our_product_url_from_row يرفض أي قيمة لا تبدأ بـ http؛ الأوصاف تأتي من
+# load_our_descriptions المنفصل)، فنُفرّغه قبل أن يدخل session_state.
+_OUR_URL_KEYS = ("رابط_منتجنا", "رابط منتجنا", "رابط_المنتج", "رابط المنتج")
+
+
+def _drop_nonurl_desc_blob(row: dict) -> None:
+    """يُفرّغ قيم «رابط منتجنا» التي ليست URL (وصف HTML) — توفير ذاكرة ضخم."""
+    for k in _OUR_URL_KEYS:
+        v = row.get(k)
+        if isinstance(v, str) and v and not v.lstrip().lower().startswith("http"):
+            row[k] = ""
 
 
 def restore_results_from_json(results_list):
@@ -244,7 +261,10 @@ def restore_results_from_json(results_list):
         for k in ["جميع_المنافسين", "جميع المنافسين"]:
             if k not in row or row[k] is None:
                 row[k] = []
+        # ⚡ perf/ذاكرة: تجريد وصف HTML الميت من أعمدة الرابط قبل التطبيع
+        _drop_nonurl_desc_blob(row)
         normalize_result_media_keys(row)
+        _drop_nonurl_desc_blob(row)  # طبّع قد يكون أعاد سحبه من بديل — أفرغه ثانية
         restored.append(row)
     return restored
 
