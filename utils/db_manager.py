@@ -245,6 +245,41 @@ def init_db():
 
     conn.commit()
     conn.close()
+    # فهارس الأداء (idempotent) — تسرّع المطابقة/العرض/الترقيم على مستوى SQL
+    ensure_indexes()
+
+
+def ensure_indexes() -> None:
+    """ينشئ فهارس الأداء إن لم توجد (P2 — competitor/brand/price/norm_name).
+
+    آمن وidempotent: لا يفشل إذا غاب جدول. يسرّع reconcile (بحث norm_name)،
+    استعلامات CompetitorIntelligence، والترقيم SQL (LIMIT/OFFSET) على الجداول الكبيرة.
+    """
+    _index_specs = [
+        # competitor_products_store (مخزن المنافسين الحيّ)
+        ("competitor_products_store", "idx_cps_competitor2", "competitor"),
+        ("competitor_products_store", "idx_cps_brand2",      "brand"),
+        ("competitor_products_store", "idx_cps_price2",      "price"),
+        ("competitor_products_store", "idx_cps_norm2",       "norm_name"),
+        # comp_catalog (الكتالوج التراكمي) — norm_name كان بلا فهرس (مسح كامل)
+        ("comp_catalog", "idx_compcat_norm",  "norm_name"),
+        ("comp_catalog", "idx_compcat_comp",  "competitor"),
+        ("comp_catalog", "idx_compcat_price", "price"),
+        # our_catalog
+        ("our_catalog", "idx_ourcat_norm", "norm_name"),
+    ]
+    try:
+        conn = get_db()
+        c = conn.cursor()
+        for tbl, idx, col in _index_specs:
+            try:
+                c.execute(f'CREATE INDEX IF NOT EXISTS {idx} ON {tbl}({col})')
+            except Exception:
+                pass  # جدول/عمود غير موجود في هذه القاعدة — تجاهل بأمان
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 # ─── Single Source of Truth API ────────────────────────────────────────────
