@@ -32,3 +32,6 @@ Thumbs.db
 # ── Logs / scratch ──
 debug-*.log
 *.log
+_*.out
+_*.err
+_*.txt
