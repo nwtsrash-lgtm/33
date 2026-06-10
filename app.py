@@ -4296,6 +4296,42 @@ elif page == "🔍 منتجات مفقودة":
     )
     db_log("missing", "view")
 
+    # ── استعادة ذاتية + تشخيص حالة حساب المفقودات ──────────────────────────
+    # المفقودات تُحسب (reconcile على عشرات آلاف المنافسين) بعد بلوغ التقدّم 100%،
+    # وقد تستغرق دقائق. هنا: (1) استعِدها من آخر وظيفة إن فُقدت من الجلسة،
+    # (2) أبلِغ المستخدم بوضوح إن كانت ما تزال قيد الحساب في الخلفية.
+    _res_now = st.session_state.get("results")
+    if not isinstance(_res_now, dict):
+        _res_now = {}
+    _cur_miss = _res_now.get("missing")
+    if not isinstance(_cur_miss, pd.DataFrame) or _cur_miss.empty:
+        try:
+            _last = get_last_job()
+            _job_miss = pd.DataFrame((_last or {}).get("missing", []) or [])
+            _job_status_m = str((_last or {}).get("status", ""))
+            if not _job_miss.empty:
+                _res_now["missing"] = _job_miss
+                st.session_state.results = _res_now
+                st.info(
+                    f"♻️ استُعيدت **{len(_job_miss):,}** منتجاً مفقوداً من آخر تحليل محفوظ "
+                    "(كانت قد فُقدت من الجلسة الحالية)."
+                )
+            elif _job_status_m == "running":
+                # المطابقة قد تكون 100% لكن حساب المفقودات (reconcile) ما يزال جارياً
+                _c_run1, _c_run2 = st.columns([4, 1])
+                with _c_run1:
+                    st.warning(
+                        "⏳ **المفقودات قيد الحساب في الخلفية.** بعد اكتمال المطابقة (100%) "
+                        "يبدأ فحص آلاف منتجات المنافسين لاستخراج غير الموجود عندنا — "
+                        "وقد يستغرق عدة دقائق. حدِّث الصفحة بعد قليل."
+                    )
+                with _c_run2:
+                    if st.button("🔄 تحديث", key="miss_refresh_running", use_container_width=True):
+                        st.rerun()
+        except Exception as _heal_err:
+            import logging as _heal_log
+            _heal_log.warning("Missing self-heal failed: %s", _heal_err)
+
     if st.session_state.results and "missing" in st.session_state.results:
         df_missing = st.session_state.results["missing"]
         df_missing_to_show = df_missing.copy() if isinstance(df_missing, pd.DataFrame) else pd.DataFrame()
