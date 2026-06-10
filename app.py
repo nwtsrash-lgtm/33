@@ -326,11 +326,29 @@ st.session_state["dash_accumulate_results"] = True
 import os as _os_cat
 _OUR_CATALOG_PATH = _os_cat.path.join(_os_cat.environ.get("DATA_DIR", "data"), "our_catalog_saved.csv")
 
-# ── تحميل الكتالوج المحفوظ تلقائياً ──
+
+@st.cache_data(show_spinner=False)
+def _load_our_catalog_cached(path: str, _mtime: float) -> pd.DataFrame:
+    """تحميل كتالوجنا مرة واحدة (مُخبّأ) + إسقاط الأعمدة الضخمة غير اللازمة.
+
+    عمود «رابط المنتج» في الملف المحفوظ يحوي وصف HTML تالفاً (~206MB!) لا روابط؛
+    إسقاطه + أعمدة المتغيّرات [1]/[2]/[3] يقلّص الكتالوج من ~226MB إلى ~20MB،
+    فيخفّ session_state بشدة (إقلاع أسرع + نقل أخف + تفاعل أسرع). _mtime يُبطل
+    الكاش تلقائياً عند تغيّر الملف.
+    """
+    _df = pd.read_csv(path, encoding="utf-8-sig")
+    _drop = [c for c in _df.columns
+             if c == "رابط المنتج" or str(c).startswith("[")]
+    if _drop:
+        _df = _df.drop(columns=_drop, errors="ignore")
+    return _df
+
+
+# ── تحميل الكتالوج المحفوظ تلقائياً (مُخبّأ + رشيق) ──
 if st.session_state.get("our_df") is None and _os_cat.path.exists(_OUR_CATALOG_PATH):
     try:
-        _saved_cat = pd.read_csv(_OUR_CATALOG_PATH, encoding="utf-8-sig")
-        if not _saved_cat.empty:
+        _saved_cat = _load_our_catalog_cached(_OUR_CATALOG_PATH, _os_cat.path.getmtime(_OUR_CATALOG_PATH))
+        if _saved_cat is not None and not _saved_cat.empty:
             st.session_state.our_df = _saved_cat
     except Exception:
         pass
