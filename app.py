@@ -4553,33 +4553,39 @@ elif page == "🔍 منتجات مفقودة":
                 )
             else:
                 # لا مفقودات في الجلسة ولا في آخر وظيفة (الوظيفة غالباً ماتت قبل
-                # حساب المفقودات). الحل الجذري: احسبها عند الطلب من المخزن الدائم.
-                if _job_status_m == "running":
-                    st.warning(
-                        "⏳ قد تكون المفقودات ما تزال قيد الحساب في الخلفية بعد اكتمال "
-                        "المطابقة. أو احسبها الآن مباشرةً من المخزن التراكمي:"
-                    )
-                else:
-                    st.info(
-                        "لم تُحفظ المفقودات من آخر تحليل (غالباً انتهت العملية قبل حسابها). "
-                        "احسبها الآن مباشرةً من المخزن التراكمي للمنافسين:"
-                    )
-                if st.button("🔍 احسب المنتجات المفقودة الآن من المخزن (108k+ منافس)",
-                             key="miss_compute_now", type="primary"):
+                # حسابها). الحل: احسبها **تلقائياً عند فتح هذه الصفحة** من المخزن
+                # الدائم (لا عند الإقلاع — لتفادي تثقيل بدء التطبيق). الحساب مُخبّأ
+                # (@st.cache_data) فيُنفَّذ مرة ويُعاد فورياً؛ وعلَم الجلسة يمنع
+                # إعادة المحاولة كل rerun حتى لو كانت النتيجة فارغة.
+                _auto_key = "_missing_store_autocomputed"
+                if not st.session_state.get(_auto_key):
                     with st.spinner("🧠 جارٍ فحص كل منتجات المنافسين مقابل كتالوجنا… "
-                                     "(قد يستغرق دقائق — يُحسب مرة ويُخزَّن)"):
+                                     "(يُحسب مرة ويُخزَّن — لحظات)"):
                         try:
                             _computed = _compute_missing_from_store(_our_sig="v1")
                         except Exception as _cm_err:
                             _computed = pd.DataFrame()
                             st.error(f"❌ تعذّر حساب المفقودات: {_cm_err}")
+                    # ضع العلَم دائماً — حتى لو فارغة — كي لا نُعيد الحساب الثقيل كل rerun
+                    st.session_state[_auto_key] = True
                     if isinstance(_computed, pd.DataFrame) and not _computed.empty:
                         _res_now["missing"] = _computed
                         st.session_state.results = _res_now
-                        st.success(f"✅ تم العثور على **{len(_computed):,}** منتجاً مفقوداً.")
-                        st.rerun()
+                        st.rerun()  # أعد الرسم ليعرضها قسم العرض أدناه مباشرة
                     else:
-                        st.warning("لم يُعثر على منتجات مفقودة (أو لا يوجد مخزن منافسين/كتالوج).")
+                        st.info(
+                            "لم يُعثر على منتجات مفقودة في المخزن التراكمي "
+                            "(كل منتجات المنافسين موجودة لدينا، أو لا يوجد مخزن/كتالوج)."
+                        )
+                # زر إعادة حساب يدوي (يُفرغ الكاش والعلَم لإجبار حساب جديد)
+                if st.button("🔄 إعادة حساب المفقودة من المخزن (108k+ منافس)",
+                             key="miss_compute_now"):
+                    st.session_state.pop(_auto_key, None)
+                    try:
+                        _compute_missing_from_store.clear()
+                    except Exception:
+                        pass
+                    st.rerun()
         except Exception as _heal_err:
             import logging as _heal_log
             _heal_log.warning("Missing self-heal failed: %s", _heal_err)
