@@ -417,14 +417,16 @@ def _split_results(df):
                 ]
                 if _db_keys_to_revert:
                     bulk_revert_processed(_db_keys_to_revert)
-                # Force these items into price_lower (competitor undercut us)
-                # by rewriting their القرار so the split below picks them up
+                # FIX (cond.8): المنافس هبط تحت سعرنا المُرسَل ⇒ صار أرخص منّا ⇒
+                # نحن الآن «أعلى» ⇒ يجب أن يعود المنتج إلى قسم «🔴 سعر أعلى»
+                # (حيث يتّخذ المستخدم إجراء خفض سعرنا)، لا «سعر أقل».
                 _revert_idx = _processed_slice.loc[_revert_mask].index
-                work.loc[_revert_idx, "القرار"] = "سعر أقل — مراجعة تلقائية (Smart Reversion)"
+                work.loc[_revert_idx, "القرار"] = "🔴 سعر أعلى — مراجعة تلقائية (Smart Reversion)"
                 # Toast notification (consumed once)
                 st.session_state["_action_toast"] = (
                     "warning",
-                    f"⚠️ Smart Reversion: أُعيد {len(_revert_pids)} منتج إلى 'سعر أقل' بسبب انخفاض سعر المنافس"
+                    f"⚠️ Smart Reversion: أُعيد {len(_revert_pids)} منتج إلى '🔴 سعر أعلى' "
+                    "بسبب انخفاض سعر المنافس تحت سعرك المُرسَل"
                 )
     # ── End Smart Reversion ───────────────────────────────────────
 
