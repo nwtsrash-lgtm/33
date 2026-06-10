@@ -351,6 +351,47 @@ def _load_our_catalog_cached(path: str, _mtime: float) -> pd.DataFrame:
     return _df
 
 
+@st.cache_data(show_spinner=False)
+def load_our_descriptions(_mtime: float = 0.0) -> dict:
+    """أوصاف مهووس الحقيقية لمنتجاتنا — تُحمَّل عند الطلب فقط (مُخبّأة، خارج session_state).
+
+    ⚠️ مكان البيانات: عمود «رابط المنتج» في our_catalog_saved.csv يحوي فعلياً
+    وصف HTML بأسلوب مهووس (لا روابط) — وهو ثقيل (~206MB) لذا أُسقط من الكتالوج
+    في الجلسة. هذه الدالة تستعيده عند الحاجة فقط:
+      • ملف تصدير المفقودات (شرط 3): أسلوب الوصف المرجعي.
+      • تدريب/توجيه الـAI لتوليد أوصاف بنفس أسلوب مهووس لاحقاً.
+
+    يُعيد dict: {الاسم_المطبّع: وصف_HTML} (مفتاحان: «المنتج» و«اسم المنتج»).
+    """
+    import os as _d_os
+    from engines.engine import normalize_name as _nn
+    _path = _d_os.path.join(_d_os.environ.get("DATA_DIR", "data"), "our_catalog_saved.csv")
+    if not _d_os.path.exists(_path):
+        return {}
+    _desc_col = "رابط المنتج"
+    try:
+        _cols = pd.read_csv(_path, encoding="utf-8-sig", nrows=0).columns.tolist()
+    except Exception:
+        return {}
+    _name_cols = [c for c in ("المنتج", "اسم المنتج") if c in _cols]
+    if _desc_col not in _cols or not _name_cols:
+        return {}
+    try:
+        _d = pd.read_csv(_path, encoding="utf-8-sig", usecols=_name_cols + [_desc_col])
+    except Exception:
+        return {}
+    _out: dict = {}
+    for _, _r in _d.iterrows():
+        _desc = str(_r.get(_desc_col, "") or "").strip()
+        if not _desc or "<" not in _desc:   # وصف HTML فعلي فقط
+            continue
+        for _nc in _name_cols:
+            _nm = str(_r.get(_nc, "") or "").strip()
+            if _nm:
+                _out.setdefault(_nn(_nm), _desc)
+    return _out
+
+
 # ── تحميل الكتالوج المحفوظ تلقائياً (مُخبّأ + رشيق) ──
 if st.session_state.get("our_df") is None and _os_cat.path.exists(_OUR_CATALOG_PATH):
     try:
