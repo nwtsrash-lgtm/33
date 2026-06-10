@@ -872,6 +872,37 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _annotate_change_status(new_df, prev_df):
+    """يَسِم كل صف بـ «حالة_التغيير» مقارنةً بالتحليل السابق (الشرط 11):
+    «🆕 جديد» = لم يكن في السابق · «🔄 تغيّر السعر» = سعر المنافس تغيّر · «» = ثابت.
+    لا يفقد السابق (يُستدعى قبل الدمج التراكمي)."""
+    if not isinstance(new_df, pd.DataFrame) or new_df.empty:
+        return new_df
+    new_df = new_df.copy()
+    _key = "معرف_المنتج" if "معرف_المنتج" in new_df.columns else ("المنتج" if "المنتج" in new_df.columns else None)
+    _pc = "سعر_المنافس"
+    if (_key is None or not isinstance(prev_df, pd.DataFrame) or prev_df.empty
+            or _key not in prev_df.columns):
+        # لا سابق ⇒ الكل جديد (إن وُجد سابق فارغ) أو بلا وسم
+        new_df["حالة_التغيير"] = "🆕 جديد" if (prev_df is None or getattr(prev_df, "empty", True)) else ""
+        return new_df
+    _prev_price = {}
+    for _, _r in prev_df.iterrows():
+        _k = str(_r.get(_key, "")).strip()
+        if _k and _k not in ("", "nan", "None"):
+            _prev_price[_k] = safe_float(_r.get(_pc, 0)) if _pc in prev_df.columns else 0.0
+
+    def _status(_row):
+        _k = str(_row.get(_key, "")).strip()
+        if not _k or _k in ("", "nan", "None") or _k not in _prev_price:
+            return "🆕 جديد"
+        if abs(safe_float(_row.get(_pc, 0)) - _prev_price[_k]) > 0.01:
+            return "🔄 تغيّر السعر"
+        return ""
+    new_df["حالة_التغيير"] = new_df.apply(_status, axis=1)
+    return new_df
+
+
 def _dedup_missing_vs_matched(results: dict) -> dict:
     """
     مصدر حقيقة واحد: أي منتج منافس مطابَق في قسم سعري
@@ -2101,6 +2132,20 @@ def render_pro_table(
         "price_max": price_max if price_max > 0 else None,
     }
     filtered = apply_filters(df, filters)
+
+    # ── الشرط 11: فلتر «تغيّر سعره» / «منتج جديد» (يظهر بعد تحليل تراكمي) ──
+    if "حالة_التغيير" in filtered.columns and filtered["حالة_التغيير"].astype(str).str.strip().ne("").any():
+        _new_n = int((filtered["حالة_التغيير"] == "🆕 جديد").sum())
+        _chg_n = int((filtered["حالة_التغيير"] == "🔄 تغيّر السعر").sum())
+        _cs_sel = st.radio(
+            "🔔 فلتر التغيير (مقارنةً بالتحليل السابق)",
+            ["الكل", f"🆕 جديد ({_new_n})", f"🔄 تغيّر السعر ({_chg_n})"],
+            horizontal=True, key=f"{prefix}_change_filter",
+        )
+        if _cs_sel.startswith("🆕"):
+            filtered = filtered[filtered["حالة_التغيير"] == "🆕 جديد"]
+        elif _cs_sel.startswith("🔄"):
+            filtered = filtered[filtered["حالة_التغيير"] == "🔄 تغيّر السعر"]
 
     # ── شريط شارات الفلاتر الفعّالة ──
     _chips_html = render_active_filter_chips_html({
@@ -4037,10 +4082,14 @@ if page == "📊 لوحة التحكم":
                         prog.progress(min(float(p), 0.99), f"{float(p)*100:.0f}%")
 
                     df_all, audit_stats = run_full_analysis(our_df, comp_dfs, progress_callback=upd)
+                    _prev_adf = st.session_state.get("analysis_df")
+                    # الشرط 11: وسم الجديد/تغيّر السعر قبل الدمج (مقارنةً بالسابق)
+                    df_all = _annotate_change_status(df_all, _prev_adf)
                     if st.session_state.get("dash_accumulate_results", True):
-                        _prev_adf = st.session_state.get("analysis_df")
                         if _prev_adf is not None and not getattr(_prev_adf, "empty", True):
                             df_all = merge_price_analysis_dataframes(_prev_adf, df_all)
+                            if "حالة_التغيير" in df_all.columns:
+                                df_all["حالة_التغيير"] = df_all["حالة_التغيير"].fillna("")
                             st.caption("📎 وُدمت نتائج التحليل مع الجلسة السابقة.")
                     st.session_state.last_audit_stats = audit_stats
                     _render_audit_bar(audit_stats)
