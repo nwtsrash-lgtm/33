@@ -725,6 +725,58 @@ def _reconciliation_check(results: dict) -> dict:
 
 
 
+@st.cache_data(show_spinner=False, ttl=1800)
+def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
+    """يحسب المنتجات المفقودة من المخزن الدائم (مستقل عن وظيفة الخلفية الهشّة).
+
+    المصدر: our_catalog_saved.csv (أو our_df من الجلسة) × competitor_products_store.
+    يستخدم reconcile السريع (المعتمد على الفهارس) + smart_missing_barrier — نفس
+    مسار الوظيفة، فيُنتج نفس مخطّط الأعمدة الذي تتوقّعه صفحة المفقودة.
+
+    _our_sig: توقيع للكاش فقط (يُغيَّر عند تغيّر الكتالوج لإبطال الكاش).
+    يُعيد DataFrame للمفقودات (قد يكون فارغاً إن لا مخزن/كتالوج).
+    """
+    import os as _cm_os, sqlite3 as _cm_sql
+    # 1) كتالوجنا: من الجلسة إن وُجد، وإلا من الملف المحفوظ
+    our_df = st.session_state.get("our_df")
+    if not isinstance(our_df, pd.DataFrame) or our_df.empty:
+        _cat_path = _cm_os.path.join(_cm_os.environ.get("DATA_DIR", "data"), "our_catalog_saved.csv")
+        if not _cm_os.path.exists(_cat_path):
+            return pd.DataFrame()
+        with open(_cat_path, "rb") as _fh:
+            class _NB(io.BytesIO):
+                name = "our_catalog_saved.csv"
+            _res = read_file(_NB(_fh.read()))
+        our_df = _res[0] if isinstance(_res, tuple) else _res
+    if not isinstance(our_df, pd.DataFrame) or our_df.empty:
+        return pd.DataFrame()
+    # 2) منافسون: من competitor_products_store الدائم
+    _db = _cm_os.path.join(_cm_os.environ.get("DATA_DIR", "data"), "pricing_v18.db")
+    if not _cm_os.path.exists(_db):
+        return pd.DataFrame()
+    _con = _cm_sql.connect(_db)
+    try:
+        store = pd.read_sql(
+            "SELECT competitor, product_name, price, image_url, product_url, brand, size "
+            "FROM competitor_products_store WHERE product_name IS NOT NULL AND price > 0", _con)
+    finally:
+        _con.close()
+    if store.empty:
+        return pd.DataFrame()
+    store = store.rename(columns={
+        "product_name": "اسم المنتج", "price": "السعر", "image_url": "صورة المنتج",
+        "product_url": "رابط المنتج", "brand": "الماركة", "size": "الحجم"})
+    comp_dfs = {c: g.reset_index(drop=True) for c, g in store.groupby("competitor")}
+    # 3) نفس مسار الوظيفة: reconcile + barrier (مخطط أعمدة متوافق)
+    try:
+        rec = reconcile_competitor_upload(our_df, comp_dfs)
+        missing_df = smart_missing_barrier(rec.new_products_df, our_df)
+    except Exception:
+        raw = find_missing_products(our_df, comp_dfs)
+        missing_df = smart_missing_barrier(raw, our_df)
+    return missing_df if isinstance(missing_df, pd.DataFrame) else pd.DataFrame()
+
+
 def _dedup_missing_vs_matched(results: dict) -> dict:
     """
     مصدر حقيقة واحد: أي منتج منافس مطابَق في قسم سعري
@@ -4316,18 +4368,35 @@ elif page == "🔍 منتجات مفقودة":
                     f"♻️ استُعيدت **{len(_job_miss):,}** منتجاً مفقوداً من آخر تحليل محفوظ "
                     "(كانت قد فُقدت من الجلسة الحالية)."
                 )
-            elif _job_status_m == "running":
-                # المطابقة قد تكون 100% لكن حساب المفقودات (reconcile) ما يزال جارياً
-                _c_run1, _c_run2 = st.columns([4, 1])
-                with _c_run1:
+            else:
+                # لا مفقودات في الجلسة ولا في آخر وظيفة (الوظيفة غالباً ماتت قبل
+                # حساب المفقودات). الحل الجذري: احسبها عند الطلب من المخزن الدائم.
+                if _job_status_m == "running":
                     st.warning(
-                        "⏳ **المفقودات قيد الحساب في الخلفية.** بعد اكتمال المطابقة (100%) "
-                        "يبدأ فحص آلاف منتجات المنافسين لاستخراج غير الموجود عندنا — "
-                        "وقد يستغرق عدة دقائق. حدِّث الصفحة بعد قليل."
+                        "⏳ قد تكون المفقودات ما تزال قيد الحساب في الخلفية بعد اكتمال "
+                        "المطابقة. أو احسبها الآن مباشرةً من المخزن التراكمي:"
                     )
-                with _c_run2:
-                    if st.button("🔄 تحديث", key="miss_refresh_running", use_container_width=True):
+                else:
+                    st.info(
+                        "لم تُحفظ المفقودات من آخر تحليل (غالباً انتهت العملية قبل حسابها). "
+                        "احسبها الآن مباشرةً من المخزن التراكمي للمنافسين:"
+                    )
+                if st.button("🔍 احسب المنتجات المفقودة الآن من المخزن (108k+ منافس)",
+                             key="miss_compute_now", type="primary"):
+                    with st.spinner("🧠 جارٍ فحص كل منتجات المنافسين مقابل كتالوجنا… "
+                                     "(قد يستغرق دقائق — يُحسب مرة ويُخزَّن)"):
+                        try:
+                            _computed = _compute_missing_from_store(_our_sig="v1")
+                        except Exception as _cm_err:
+                            _computed = pd.DataFrame()
+                            st.error(f"❌ تعذّر حساب المفقودات: {_cm_err}")
+                    if isinstance(_computed, pd.DataFrame) and not _computed.empty:
+                        _res_now["missing"] = _computed
+                        st.session_state.results = _res_now
+                        st.success(f"✅ تم العثور على **{len(_computed):,}** منتجاً مفقوداً.")
                         st.rerun()
+                    else:
+                        st.warning("لم يُعثر على منتجات مفقودة (أو لا يوجد مخزن منافسين/كتالوج).")
         except Exception as _heal_err:
             import logging as _heal_log
             _heal_log.warning("Missing self-heal failed: %s", _heal_err)
