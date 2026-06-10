@@ -2157,9 +2157,8 @@ def render_pro_table(
                 st.session_state[f"sel_{prefix}_{_si}"] = False
             st.rerun()
 
-    # ── Task 3.2: Bulk Action Bar ─────────────────────────────────────────────
+    # ── Task 3.2: Bulk Action Bar (إجراءات جماعية حقيقية — لا stubs) ────────────
     # Reads checkbox state from the PREVIOUS render cycle (standard Streamlit pattern).
-    # None of the bulk actions are fully implemented yet — stubs use st.toast().
     _sel_indices = [
         _si for _si in page_df.index
         if st.session_state.get(f"sel_{prefix}_{_si}", False)
@@ -2178,7 +2177,7 @@ def render_pro_table(
             f"</div>",
             unsafe_allow_html=True,
         )
-        _ba1, _ba2, _ba3, _ba4 = st.columns(4)
+        _ba1, _ba2, _ba4 = st.columns(3)
         with _ba1:
             # Task 3.3 — Soft Delete: persists in DB; hidden immediately; restorable
             if st.button(
@@ -2212,27 +2211,21 @@ def render_pro_table(
                     )
                     st.rerun()
         with _ba2:
-            # Stub — export selected rows as CSV download
-            if st.button(
+            # تصدير حقيقي للصفوف المحددة (CSV) — download_button يُنزّل عند الضغط
+            _sel_in_page = [i for i in _sel_indices if i in page_df.index]
+            _sel_df_exp = page_df.loc[_sel_in_page].copy() if _sel_in_page else pd.DataFrame()
+            for _drop in ("جميع_المنافسين", "جميع المنافسين", "_priority"):
+                if _drop in _sel_df_exp.columns:
+                    _sel_df_exp = _sel_df_exp.drop(columns=[_drop])
+            _sel_csv = _sel_df_exp.to_csv(index=False, encoding="utf-8-sig")
+            st.download_button(
                 f"📥 تصدير المحدد ({_n_sel})",
-                key=f"{prefix}_bulk_export",
+                data=_sel_csv,
+                file_name=f"mahwous_{prefix}_selected.csv",
+                mime="text/csv; charset=utf-8",
                 use_container_width=True,
-            ):
-                st.toast(
-                    f"📥 تصدير {_n_sel} منتج — قيد التطوير",
-                    icon="📥",
-                )
-        with _ba3:
-            # Stub — re-run engine analysis on selected rows
-            if st.button(
-                f"🔬 إعادة تحليل ({_n_sel})",
-                key=f"{prefix}_bulk_analyze",
-                use_container_width=True,
-            ):
-                st.toast(
-                    f"🔬 إعادة تحليل {_n_sel} منتج — قيد التطوير",
-                    icon="🔬",
-                )
+                key=f"{prefix}_bulk_export_dl",
+            )
         with _ba4:
             if st.button(
                 "❌ إلغاء التحديد",
