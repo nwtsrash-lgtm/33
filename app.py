@@ -4587,6 +4587,35 @@ elif page == "🔍 منتجات مفقودة":
                 with _fc3:
                     st.caption(f"📊 التوزيع: {_cat_parts}")
 
+            # ── تصدير مباشر لكل المفقودات المعروضة → قالب سلة الشامل (الشرط 3) ──
+            # توليد عند الطلب (لتفادي إعادة البناء البطيء في كل rerun) ثم تحميل.
+            st.markdown("##### 📦 تصدير جاهز للرفع — قالب سلة الشامل (40 عمود)")
+            _exp_d1, _exp_d2 = st.columns([1, 1])
+            with _exp_d1:
+                if st.button(f"⚙️ توليد ملف سلة لكل المعروض ({len(filtered):,})",
+                             key="miss_direct_salla_gen", use_container_width=True):
+                    with st.spinner(f"⚙️ جارٍ بناء ملف سلة لـ {len(filtered):,} منتج "
+                                     "(اسم منسّق + ماركة + تصنيف + حجم + صورة + سعر مقترح + وصف مهووس)…"):
+                        try:
+                            _xb_salla = export_to_salla_shamel(
+                                filtered, st.session_state.get("analysis_df"),
+                                verify_missing=False,
+                                export_mode=st.session_state.get("salla_export_mode", "safe"),
+                            )
+                            st.session_state["_miss_direct_salla_xlsx"] = _xb_salla
+                            st.success("✅ تم بناء الملف — اضغط تحميل.")
+                        except Exception as _e_salla:
+                            st.error(f"❌ تعذّر بناء ملف سلة: {_e_salla}")
+            with _exp_d2:
+                _xb_ready = st.session_state.get("_miss_direct_salla_xlsx")
+                if _xb_ready:
+                    st.download_button(
+                        "📥 تحميل سلة الشامل (xlsx)", data=_xb_ready,
+                        file_name="mahwous_missing_salla.xlsx",
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                        type="primary", use_container_width=True, key="miss_direct_salla_dl",
+                    )
+
             # ── أزرار تحديد جماعي ──
             _sel_c1, _sel_c2, _sel_c3, _sel_c4 = st.columns([2, 2, 2, 4])
             with _sel_c1:
