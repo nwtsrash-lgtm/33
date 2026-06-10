@@ -868,6 +868,31 @@ def render_active_filter_chips_html(filters: dict) -> str:
     return f'<div dir="rtl" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px">{chips}</div>'
 
 
+def render_precise_stats(stats: dict) -> None:
+    """لوحة إحصائيات دقيقة — أرقام حقيقية فقط (لا تقديرات)."""
+    import streamlit as st
+    items = [
+        ("📦", "منتجاتنا",        int(stats.get("our_products", 0)),   "#818CF8"),
+        ("🏬", "إجمالي منافسين",  int(stats.get("total_competitors", 0)), "#38BDF8"),
+        ("🏪", "عدد المتاجر",     int(stats.get("stores", 0)),         "#22D3EE"),
+        ("🎴", "وُزِّع في بطاقات", int(stats.get("placed_in_cards", 0)), "#A78BFA"),
+        ("🔴", "سعر أعلى",        int(stats.get("raise", 0)),          "#EF4444"),
+        ("🟢", "سعر أقل",         int(stats.get("lower", 0)),          "#10B981"),
+        ("✅", "موافق",           int(stats.get("approved", 0)),       "#059669"),
+        ("⚪", "مستبعد",          int(stats.get("excluded", 0)),       "#94A3B8"),
+        ("🔍", "مفقود",           int(stats.get("missing", 0)),        "#F59E0B"),
+        ("⚠️", "مراجعة",          int(stats.get("review", 0)),         "#FB923C"),
+    ]
+    cells = "".join(
+        f'<div class="ps-cell" style="border-top-color:{color}">'
+        f'<div class="ps-ico">{icon}</div>'
+        f'<div class="ps-num" style="color:{color}">{value:,}</div>'
+        f'<div class="ps-lbl">{label}</div></div>'
+        for icon, label, value, color in items
+    )
+    st.markdown(f'<div dir="rtl" class="ps-grid">{cells}</div>', unsafe_allow_html=True)
+
+
 def render_excluded_table(rows) -> None:
     """جدول HTML خفيف للمنتجات المستبعدة مع عمود «لماذا» (السبب)."""
     import streamlit as st
@@ -1015,5 +1040,11 @@ _V32_CSS = """<style>
 .changes-table .ct-store{color:#82B1FF}
 .changes-table .ct-date{color:#64748B;white-space:nowrap;font-size:.72rem}
 .changes-table .ex-reason{color:#94A3B8;font-size:.74rem}
+.ps-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:6px 0 18px}
+.ps-cell{background:#0D1117;border:1px solid #1E293B;border-top:3px solid #818CF8;border-radius:10px;padding:10px 8px;text-align:center}
+.ps-ico{font-size:1rem}
+.ps-num{font-size:1.4rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
+.ps-lbl{font-size:.68rem;color:#64748B;margin-top:2px}
+@media (max-width:900px){.ps-grid{grid-template-columns:repeat(2,1fr)}}
 @media (max-width:640px){.v32-arena{flex-direction:column;gap:12px}.v32-vs-col{flex-direction:row;padding:8px 0;min-width:unset}.v32-big-price{font-size:1.4rem}.miss-card-inner{flex-direction:column}}
 </style>"""

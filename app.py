@@ -93,7 +93,8 @@ SECTIONS = [
 from styles import (get_styles, vs_card, comp_strip, miss_card,
                     get_sidebar_toggle_js, lazy_img_tag, linked_product_title,
                     render_kpi_row, render_active_filter_chips_html,
-                    render_changes_table, render_excluded_table)
+                    render_changes_table, render_excluded_table,
+                    render_precise_stats)
 from engines.mahwous_core import validate_export_product_dataframe
 from engines.engine import (read_file, run_full_analysis, find_missing_products,
                              smart_missing_barrier, prepare_missing_for_upload,
@@ -3116,6 +3117,29 @@ if page == "📊 لوحة التحكم":
                 "lower":    _lower_h,
                 "approved": _approved_h,
                 "missing":  _missing_h,
+            })
+
+            # ── الشرط 10: لوحة إحصائيات دقيقة (أرقام حقيقية لا تقديرية) ──
+            _excluded_h = len(r.get("excluded", pd.DataFrame()))
+            _review_h   = len(r.get("review", pd.DataFrame()))
+            # منافسون/متاجر من قاعدة البيانات الفعلية (لا تقدير)
+            _comp_total_db, _stores_db = 0, 0
+            try:
+                from engines.competitor_intelligence import CompetitorIntelligence as _CI
+                import os as _ci_os2
+                _ci_stats2 = _CI(db_path=_ci_os2.path.join(_ci_os2.environ.get("DATA_DIR", "data"), "pricing_v18.db")).get_stats()
+                _comp_total_db = int(_ci_stats2.get("total_products", 0))
+                _stores_db     = int(_ci_stats2.get("total_competitors", 0))
+            except Exception:
+                pass
+            render_precise_stats({
+                "our_products":      _analysis_total_dash,
+                "total_competitors": _comp_total_db,
+                "stores":            _stores_db,
+                # «وُزِّع فعلاً في بطاقات» = الأقسام التي تعرض بطاقات منتجات
+                "placed_in_cards":   _raise_h + _lower_h + _approved_h + _missing_h,
+                "raise":    _raise_h, "lower": _lower_h, "approved": _approved_h,
+                "excluded": _excluded_h, "missing": _missing_h, "review": _review_h,
             })
             _coverage = int((_approved_h + _lower_h) / max(_total_h, 1) * 100)
             st.caption(f"ملخص آخر تحليل لـ **{_analysis_total_dash:,}** منتج · 🎯 تغطية تنافسية: **{_coverage}%**")
