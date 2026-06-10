@@ -458,11 +458,53 @@ def miss_card(name=None, price=0, brand="", size="", ptype="", comp="", suggeste
         meta_html = " · ".join(meta)
         sugg_html = (f'<div style="font-size:.75rem;color:#10B981;margin-top:3px">'
                      f'سعر مقترح: <b>{suggested:,.0f} ر.س</b></div>') if suggested > 0 else ""
+
+        # ── دمج الإشارات الغنية (تستر / الثقة / النوع المتاح / تحذيرات التشابه) ──
+        # شارة الثقة (تظهر للأصفر/الأحمر فقط — الأخضر هو الافتراضي الصامت)
+        _conf = _safe_str(row.get("مستوى_الثقة", row.get("confidence_level", "green")), "green")
+        _conf_map = {"yellow": ("⚠️ محتمل", "#F59E0B"), "red": ("🚩 مشكوك", "#EF4444")}
+        conf_badge = ""
+        if _conf in _conf_map:
+            _ct, _cc = _conf_map[_conf]
+            conf_badge = (f'<span style="font-size:.62rem;font-weight:700;padding:2px 8px;'
+                          f'border-radius:8px;background:{_cc}1A;color:{_cc};'
+                          f'border:1px solid {_cc}55;margin-left:6px">{_ct}</span>')
+        # شارة تستر
+        tester_badge_h = ""
+        if row.get("هو_تستر") or row.get("is_tester"):
+            tester_badge_h = ('<span style="font-size:.62rem;font-weight:700;padding:2px 8px;'
+                              'border-radius:8px;background:#9333EA1A;color:#C084FC;'
+                              'border:1px solid #9333EA55;margin-left:6px">🧪 تستر</span>')
+        badges_html = ""
+        if conf_badge or tester_badge_h:
+            badges_html = f'<div style="margin-top:5px">{conf_badge}{tester_badge_h}</div>'
+        # شريط «النوع المتاح» (يوجد تستر/الأساسي عندنا) — إشارة عمل مهمة
+        variant_label   = _safe_str(row.get("نوع_متاح", row.get("variant_label", "")), "")
+        variant_product = _safe_str(row.get("منتج_متاح", row.get("variant_product", "")), "")
+        variant_score   = _safe_float(row.get("نسبة_التشابه", row.get("variant_score", 0)))
+        variant_html = ""
+        if variant_label.strip():
+            _is_tester_v = "تستر" in variant_label
+            _vc = "#F59E0B" if _is_tester_v else "#10B981"
+            _extra = (f' <span style="color:#94A3B8;font-weight:400">'
+                      f'({variant_score:.0f}%) → {_html_escape(variant_product[:50])}</span>'
+                      if variant_product else "")
+            variant_html = (f'<div style="margin-top:6px;padding:5px 10px;border-radius:8px;'
+                            f'background:{_vc}14;border:1px solid {_vc}55;font-size:.72rem;'
+                            f'color:{_vc};font-weight:700">{_html_escape(variant_label)}{_extra}</div>')
+        # تحذير تشابه (ملاحظة تحوي ⚠️)
+        _note = _safe_str(row.get("ملاحظة", row.get("note", "")), "")
+        note_html = (f'<div style="margin-top:5px;font-size:.70rem;color:#F59E0B">{_html_escape(_note)}</div>'
+                     if _note and "⚠️" in _note else "")
+
         return f"""<div class="miss-card-v32" dir="rtl"><div class="miss-card-inner">
 <div class="miss-card-info">
 <div class="miss-card-store">🏪 {_html_escape(comp_store)}</div>
 <div class="miss-card-name">{name_html}</div>
 <div class="miss-card-meta">{meta_html}</div>
+{badges_html}
+{variant_html}
+{note_html}
 {sugg_html}
 </div>
 <div class="miss-card-price-side">

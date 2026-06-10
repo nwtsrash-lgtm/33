@@ -5307,33 +5307,8 @@ elif page == "🔍 منتجات مفقودة":
                         "variant_product": variant_product[:80],
                     })
 
-                # ── لون البطاقة حسب الحالة ────────────────────────────
-                if _has_variant and _is_tester_type:
-                    _border = "#ff980055"; _badge_bg = "#ff9800"
-                elif _has_variant:
-                    _border = "#4caf5055"; _badge_bg = "#4caf50"
-                elif _is_similar:
-                    _border = "#ff572255"; _badge_bg = "#ff5722"
-                else:
-                    _border = "#007bff44"; _badge_bg = "#007bff"
-
-                # ── بادج النوع المتاح ──────────────────────────────────
-                _variant_html = ""
-                if _has_variant:
-                    _variant_html = f"""
-                    <div style="margin-top:6px;padding:5px 10px;border-radius:6px;
-                                background:{_badge_bg}22;border:1px solid {_badge_bg}88;
-                                font-size:.78rem;color:{_badge_bg};font-weight:700">
-                        {variant_label}
-                        <span style="font-weight:400;color:#aaa;margin-right:6px">
-                            ({variant_score:.0f}%) → {variant_product[:50]}
-                        </span>
-                    </div>"""
-
-                # ── بادج تستر ─────────────────────────────────────────
-                _tester_badge = ""
-                if is_tester_flag:
-                    _tester_badge = '<span style="font-size:.68rem;padding:2px 7px;border-radius:10px;background:#9c27b022;color:#ce93d8;margin-right:6px">🏷️ تستر</span>'
+                # ملاحظة: إشارات اللون/النوع المتاح/التستر تُصاغ الآن داخل
+                # miss-card-v32 (styles.miss_card) من حقول الصف مباشرةً.
 
                 _miss_img = str(row.get("صورة_المنافس", "") or "").strip()
                 if not _miss_img:
@@ -5345,10 +5320,10 @@ elif page == "🔍 منتجات مفقودة":
                     _miss_img = _cached_thumb_from_product_url(_miss_comp_url)
 
                 _our_potential_img = ""
-                if variant_product and st.session_state.analysis_df is not None:
-                    _match_row = st.session_state.analysis_df[
-                        st.session_state.analysis_df["المنتج"] == variant_product
-                    ]
+                _adf_pot = st.session_state.analysis_df
+                if (variant_product and isinstance(_adf_pot, pd.DataFrame)
+                        and not _adf_pot.empty and "المنتج" in _adf_pot.columns):
+                    _match_row = _adf_pot[_adf_pot["المنتج"] == variant_product]
                     if not _match_row.empty:
                         _our_potential_img, _ = row_media_urls_from_analysis(_match_row.iloc[0])
 
@@ -5361,18 +5336,26 @@ elif page == "🔍 منتجات مفقودة":
                             name[:40],
                         )
                         st.markdown(images_html, unsafe_allow_html=True)
-                    st.markdown(miss_card(
-                        name=name, price=price, brand=brand, size=size,
-                        ptype=ptype, comp=_comp_show, suggested_price=suggested_price,
-                        note=note if _is_similar else "",
-                        variant_html=_variant_html, tester_badge=_tester_badge,
-                        border_color=_border,
-                        confidence_level=conf_level, confidence_score=conf_score,
-                        product_id=_miss_pid,
-                        image_url=_miss_img,
-                        comp_url=_miss_comp_url,
-                        title_override=_title_display,
-                    ), unsafe_allow_html=True)
+                    # v32: بطاقة miss-card-v32 (dict) — تدمج الأجمل بالأغنى:
+                    # تعرض الإشارات (تستر/النوع المتاح/التحذيرات/الثقة) بالتصميم الجديد.
+                    st.markdown(miss_card({
+                        "منتج_المنافس": _title_display or name,
+                        "المنافس":      _comp_show,
+                        "سعر_المنافس":  price,
+                        "صورة_المنافس": _miss_img,
+                        "رابط_المنافس": _miss_comp_url,
+                        "الماركة":      brand,
+                        "الحجم":        size,
+                        "النوع":        ptype,
+                        "السعر_المقترح": suggested_price,
+                        "معرف_المنافس": _miss_pid,
+                        "مستوى_الثقة":  conf_level,
+                        "هو_تستر":      is_tester_flag,
+                        "نوع_متاح":     variant_label,
+                        "منتج_متاح":    variant_product,
+                        "نسبة_التشابه": variant_score,
+                        "ملاحظة":       note if _is_similar else "",
+                    }), unsafe_allow_html=True)
 
                 # ── إجراءات مختصرة على البطاقة ───────────────────────────
                 a_quick, a_enrich, a_ign = st.columns(3)
