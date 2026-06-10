@@ -303,12 +303,16 @@ class CompetitorIntelligence:
             if fp and len(fp) > 5:
                 our_fingerprints.add(fp)
 
-        # جلب كل منتجات المنافسين
+        # جلب منتجات المنافسين — إسقاط الأعمدة الـ6 المستخدمة فقط (لا SELECT *
+        # على 25 عمودًا/108K صف). الترقيم لا يمكن نقله إلى SQL لأن البصمة تُحسب
+        # في Python وتتطلب مسحًا كاملًا للتجميع، لكن إسقاط الأعمدة يقلّص الزمن جذريًا.
         where, params = self._build_where(filters)
         try:
             conn = self._get_conn()
             rows = conn.execute(
-                f"SELECT * FROM competitor_products_store {where} {'AND' if where else 'WHERE'} price > 0",
+                "SELECT product_name, brand, category, image_url, price, competitor "
+                f"FROM competitor_products_store {where} "
+                f"{'AND' if where else 'WHERE'} price > 0",
                 params
             ).fetchall()
             conn.close()
@@ -316,10 +320,14 @@ class CompetitorIntelligence:
             log.error("find_missing: %s", e)
             return [], 0
 
-        # تجميع بالبصمة
+        # تجميع بالبصمة — فهرسة مباشرة للصف (أسرع من dict(row) لكل صف)
         missing_map = {}  # fingerprint → aggregated data
         for row in rows:
-            r = dict(row)
+            _pn, _br, _cat, _img, _price_raw, _comp = (
+                row[0], row[1], row[2], row[3], row[4], row[5]
+            )
+            r = {"product_name": _pn, "brand": _br, "category": _cat,
+                 "image_url": _img, "price": _price_raw, "competitor": _comp}
             fp = _fingerprint(r.get("product_name", ""), r.get("brand", ""))
             if not fp or len(fp) <= 5:
                 continue
