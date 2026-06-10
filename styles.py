@@ -826,6 +826,46 @@ def render_active_filter_chips_html(filters: dict) -> str:
     return f'<div dir="rtl" style="display:flex;flex-wrap:wrap;gap:6px;margin:6px 0 10px">{chips}</div>'
 
 
+def render_changes_table(changes, limit: int = 200) -> None:
+    """جدول HTML خفيف لتغييرات الأسعار (بدل st.dataframe الثقيل)."""
+    import streamlit as st
+    rows = list(changes or [])[:limit]
+    if not rows:
+        st.info("لا توجد تغييرات أسعار")
+        return
+    body = []
+    for ch in rows:
+        old_p = _safe_float(ch.get("old_price", 0))
+        new_p = _safe_float(ch.get("new_price", 0))
+        diff  = _safe_float(ch.get("price_diff", new_p - old_p))
+        if diff > 0:
+            d_color, d_txt = "#EF4444", f"▲ +{diff:,.0f}"
+        elif diff < 0:
+            d_color, d_txt = "#10B981", f"▼ {diff:,.0f}"
+        else:
+            d_color, d_txt = "#64748B", "—"
+        body.append(
+            "<tr>"
+            f'<td class="ct-name">{_html_escape(str(ch.get("product_name", "—"))[:60])}</td>'
+            f'<td class="ct-store">{_html_escape(str(ch.get("competitor", "—"))[:30])}</td>'
+            f'<td class="ct-num">{old_p:,.0f}</td>'
+            f'<td class="ct-num">{new_p:,.0f}</td>'
+            f'<td class="ct-num" style="color:{d_color};font-weight:700">{d_txt}</td>'
+            f'<td class="ct-date">{_html_escape(str(ch.get("new_date", "—"))[:16])}</td>'
+            "</tr>"
+        )
+    st.markdown(
+        '<div class="ct-wrap" dir="rtl"><table class="changes-table">'
+        "<thead><tr>"
+        "<th>المنتج</th><th>المنافس</th><th>السابق</th>"
+        "<th>الجديد</th><th>التغيير</th><th>التاريخ</th>"
+        "</tr></thead><tbody>"
+        + "".join(body)
+        + "</tbody></table></div>",
+        unsafe_allow_html=True,
+    )
+
+
 # ══════════════════════════════════════════════════════════════════
 #  v32 CSS — Head-to-Head Arena card system + KPI + miss-card-v32
 # ══════════════════════════════════════════════════════════════════
@@ -897,5 +937,14 @@ _V32_CSS = """<style>
 .miss-card-price{font-size:1.5rem;font-weight:900;color:#F59E0B;font-variant-numeric:tabular-nums}
 .miss-card-sar{font-size:.62rem;color:#64748B;margin-top:-4px}
 .miss-card-badge{font-size:.62rem;font-weight:700;padding:2px 8px;background:rgba(14,165,233,.1);color:#38BDF8;border:1px solid #0EA5E930;border-radius:8px;margin-top:4px}
+.ct-wrap{max-height:260px;overflow:auto;border:1px solid #1E293B;border-radius:10px;margin:4px 0 12px}
+.changes-table{width:100%;border-collapse:collapse;font-size:.78rem}
+.changes-table thead th{position:sticky;top:0;background:#111827;color:#94A3B8;font-weight:700;padding:8px 10px;text-align:right;border-bottom:1px solid #1E293B;white-space:nowrap}
+.changes-table tbody td{padding:7px 10px;border-bottom:1px solid #0F1B2E;color:#CBD5E1}
+.changes-table tbody tr:hover{background:rgba(99,102,241,.06)}
+.changes-table .ct-num{text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
+.changes-table .ct-name{color:#E2E8F0;font-weight:600}
+.changes-table .ct-store{color:#82B1FF}
+.changes-table .ct-date{color:#64748B;white-space:nowrap;font-size:.72rem}
 @media (max-width:640px){.v32-arena{flex-direction:column;gap:12px}.v32-vs-col{flex-direction:row;padding:8px 0;min-width:unset}.v32-big-price{font-size:1.4rem}.miss-card-inner{flex-direction:column}}
 </style>"""

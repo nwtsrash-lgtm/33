@@ -1,5 +1,7 @@
 # ── Data files (لا ترفع على GitHub) ──
 data/*.db
+data/*.db-shm
+data/*.db-wal
 data/*.sqlite
 data/*.csv
 data/*.xlsx
@@ -26,3 +28,7 @@ __pycache__/
 # ── OS ──
 Thumbs.db
 .DS_Store
+
+# ── Logs / scratch ──
+debug-*.log
+*.log

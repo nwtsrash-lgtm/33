@@ -18,6 +18,33 @@ app.py - نظام التسعير الذكي مهووس v26.0
 """
 import os as _os_early
 import html as _html_mod
+import sys as _sys_early
+
+# ── حارس إصدار Python (حرج) ─────────────────────────────────────────
+# Streamlit غير متوافق مع Python 3.14: يفشل عند خدمة الملفات الثابتة
+# (TypeError: cannot create weak reference to 'NoneType' في anyio/asyncio)
+# ويظهر «Internal Server Error» في المتصفح. شغّل دائماً على Python 3.11.
+if _sys_early.version_info[:2] >= (3, 14):
+    _v = ".".join(map(str, _sys_early.version_info[:3]))
+    _msg = (
+        "\n" + "=" * 70 + "\n"
+        f"❌ إصدار Python غير مدعوم: {_v}\n"
+        "   هذا التطبيق يتطلب Python 3.11 (Streamlit لا يعمل على 3.14+).\n"
+        "   شغّله عبر:\n"
+        '   & "C:\\Users\\Hp\\AppData\\Local\\Programs\\Python\\Python311\\python.exe"'
+        " -m streamlit run app.py --server.port 8501\n"
+        "   أو انقر run_app.bat\n"
+        + "=" * 70 + "\n"
+    )
+    print(_msg, file=_sys_early.stderr, flush=True)
+    raise SystemExit(_msg)
+elif _sys_early.version_info[:2] != (3, 11):
+    _v = ".".join(map(str, _sys_early.version_info[:3]))
+    print(
+        f"⚠️  تحذير: يُنصح بتشغيل هذا التطبيق على Python 3.11 (الحالي: {_v}).",
+        file=_sys_early.stderr, flush=True,
+    )
+
 _os_early.environ.setdefault("OPENBLAS_NUM_THREADS", "1")
 _os_early.environ.setdefault("MKL_NUM_THREADS", "1")
 _os_early.environ.setdefault("OMP_NUM_THREADS", "1")
@@ -63,7 +90,9 @@ SECTIONS = [
     "⚙️ الإعدادات",
 ]
 from styles import (get_styles, vs_card, comp_strip, miss_card,
-                    get_sidebar_toggle_js, lazy_img_tag, linked_product_title)
+                    get_sidebar_toggle_js, lazy_img_tag, linked_product_title,
+                    render_kpi_row, render_active_filter_chips_html,
+                    render_changes_table)
 from engines.mahwous_core import validate_export_product_dataframe
 from engines.engine import (read_file, run_full_analysis, find_missing_products,
                              smart_missing_barrier, prepare_missing_for_upload,
@@ -733,6 +762,32 @@ def _dedup_missing_vs_matched(results: dict) -> dict:
             )
 
     return results
+
+
+def _dedup_missing_display(df: "pd.DataFrame") -> "tuple":
+    """إزالة تكرار العرض فقط (لا يمسّ الإجماليات ولا المنطق).
+
+    يُستخدم حصراً قبل عرض بطاقات المفقودة: يطوي الصفوف المتطابقة بصرياً
+    (نفس منتج_المنافس + نفس المنافس + نفس السعر) إلى صف واحد لتفادي
+    تكرار نفس البطاقة على المستخدم. يُعيد (df_للعرض, عدد_المطويّ).
+    لا يُمرَّر هذا الناتج لأي إرسال/تصدير — العمليات تبقى على الـ df الكامل.
+    """
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df, 0
+    _key_cols = [c for c in ("منتج_المنافس", "المنافس", "سعر_المنافس") if c in df.columns]
+    if not _key_cols:
+        return df, 0
+    _key = (
+        df[_key_cols]
+        .astype(str)
+        .apply(lambda s: s.str.strip().str.lower())
+        .agg("§".join, axis=1)
+    )
+    _mask = ~_key.duplicated(keep="first")
+    _removed = int((~_mask).sum())
+    if _removed <= 0:
+        return df, 0
+    return df[_mask], _removed
 
 
 # ── تحديث حي بدون مكوّنات مخصصة (streamlit-autorefresh يفشل غالباً على السحابة/الوكيل) ───────────────
@@ -1812,53 +1867,27 @@ def render_pro_table(
 
     # ── فلاتر ─────────────────────────────────
     opts = get_filter_options(df)
+    # ملاحظة: الفلاتر ملفوفة بـ st.form حتى لا يُعاد رسم الصفحة عند كل ضغطة مفتاح
+    # (تُطبَّق فقط عند الضغط على «تطبيق الفلاتر») — تحسين أداء كبير للقوائم الكبيرة.
     if inline_filters:
         st.markdown(
             '<div class="filter-inline-wrap">'
             '<div class="filter-inline-title">🔍 فلاتر — بحث، ماركة، منافس، نوع</div></div>',
             unsafe_allow_html=True,
         )
-        # Row 1: text search + brand + competitor + type
-        c1, c2, c3, c4 = st.columns([1.15, 1, 1, 1])
-        search  = c1.text_input("🔎 بحث", key=f"{prefix}_s")
-        brand_f = c2.selectbox("🏷️ الماركة", opts["brands"], key=f"{prefix}_b")
-        comp_f  = c3.selectbox("🏪 المنافس", opts["competitors"], key=f"{prefix}_c")
-        type_f  = c4.selectbox("🧴 النوع", opts["types"], key=f"{prefix}_t")
-        # Row 2: match threshold + price range
-        c5, c6, c7 = st.columns([1.2, 1, 1])
-        match_min = c5.slider("أقل تطابق %", 0, 100, 0, key=f"{prefix}_m")
-        price_min = c6.number_input("سعر من", 0.0, key=f"{prefix}_p1")
-        price_max = c7.number_input("سعر إلى", 0.0, key=f"{prefix}_p2")
-        # Row 3 (Task 3.1) — gender + size; shown only when columns exist in data
-        _has_gender = "الجنس" in df.columns and len(opts["genders"]) > 1
-        _has_size   = "الحجم" in df.columns  and len(opts["sizes"])   > 1
-        if _has_gender or _has_size:
-            c8, c9 = st.columns(2)
-            gender_f = (
-                c8.selectbox("🚻 الجنس", opts["genders"], key=f"{prefix}_g")
-                if _has_gender else "الكل"
-            )
-            size_f = (
-                c9.selectbox("📦 الحجم (مل)", opts["sizes"], key=f"{prefix}_sz")
-                if _has_size else "الكل"
-            )
-        else:
-            gender_f = "الكل"
-            size_f   = "الكل"
-    else:
-        with st.expander("🔍 فلاتر متقدمة", expanded=False):
-            # Row 1
-            c1, c2, c3, c4 = st.columns(4)
+        with st.form(key=f"{prefix}_filters_form", border=False):
+            # Row 1: text search + brand + competitor + type
+            c1, c2, c3, c4 = st.columns([1.15, 1, 1, 1])
             search  = c1.text_input("🔎 بحث", key=f"{prefix}_s")
             brand_f = c2.selectbox("🏷️ الماركة", opts["brands"], key=f"{prefix}_b")
             comp_f  = c3.selectbox("🏪 المنافس", opts["competitors"], key=f"{prefix}_c")
             type_f  = c4.selectbox("🧴 النوع", opts["types"], key=f"{prefix}_t")
-            # Row 2
-            c5, c6, c7 = st.columns(3)
-            match_min = c5.slider("أقل تطابق%", 0, 100, 0, key=f"{prefix}_m")
+            # Row 2: match threshold + price range
+            c5, c6, c7 = st.columns([1.2, 1, 1])
+            match_min = c5.slider("أقل تطابق %", 0, 100, 0, key=f"{prefix}_m")
             price_min = c6.number_input("سعر من", 0.0, key=f"{prefix}_p1")
-            price_max = c7.number_input("سعر لـ", 0.0, key=f"{prefix}_p2")
-            # Row 3 (Task 3.1) — gender + size
+            price_max = c7.number_input("سعر إلى", 0.0, key=f"{prefix}_p2")
+            # Row 3 (Task 3.1) — gender + size; shown only when columns exist in data
             _has_gender = "الجنس" in df.columns and len(opts["genders"]) > 1
             _has_size   = "الحجم" in df.columns  and len(opts["sizes"])   > 1
             if _has_gender or _has_size:
@@ -1874,6 +1903,42 @@ def render_pro_table(
             else:
                 gender_f = "الكل"
                 size_f   = "الكل"
+            _fcb1, _fcb2 = st.columns([1.2, 4.8])
+            with _fcb1:
+                st.form_submit_button("🔍 تطبيق الفلاتر", use_container_width=True, type="primary")
+            with _fcb2:
+                st.form_submit_button("↩️ تحديث", use_container_width=True)
+    else:
+        with st.expander("🔍 فلاتر متقدمة", expanded=False):
+            with st.form(key=f"{prefix}_filters_form_adv", border=False):
+                # Row 1
+                c1, c2, c3, c4 = st.columns(4)
+                search  = c1.text_input("🔎 بحث", key=f"{prefix}_s")
+                brand_f = c2.selectbox("🏷️ الماركة", opts["brands"], key=f"{prefix}_b")
+                comp_f  = c3.selectbox("🏪 المنافس", opts["competitors"], key=f"{prefix}_c")
+                type_f  = c4.selectbox("🧴 النوع", opts["types"], key=f"{prefix}_t")
+                # Row 2
+                c5, c6, c7 = st.columns(3)
+                match_min = c5.slider("أقل تطابق%", 0, 100, 0, key=f"{prefix}_m")
+                price_min = c6.number_input("سعر من", 0.0, key=f"{prefix}_p1")
+                price_max = c7.number_input("سعر لـ", 0.0, key=f"{prefix}_p2")
+                # Row 3 (Task 3.1) — gender + size
+                _has_gender = "الجنس" in df.columns and len(opts["genders"]) > 1
+                _has_size   = "الحجم" in df.columns  and len(opts["sizes"])   > 1
+                if _has_gender or _has_size:
+                    c8, c9 = st.columns(2)
+                    gender_f = (
+                        c8.selectbox("🚻 الجنس", opts["genders"], key=f"{prefix}_g")
+                        if _has_gender else "الكل"
+                    )
+                    size_f = (
+                        c9.selectbox("📦 الحجم (مل)", opts["sizes"], key=f"{prefix}_sz")
+                        if _has_size else "الكل"
+                    )
+                else:
+                    gender_f = "الكل"
+                    size_f   = "الكل"
+                st.form_submit_button("🔍 تطبيق الفلاتر", use_container_width=True, type="primary")
 
     filters = {
         "search":    search,
@@ -1887,6 +1952,18 @@ def render_pro_table(
         "price_max": price_max if price_max > 0 else None,
     }
     filtered = apply_filters(df, filters)
+
+    # ── شريط شارات الفلاتر الفعّالة ──
+    _chips_html = render_active_filter_chips_html({
+        "search":    search,
+        "brand":     brand_f,
+        "comp":      comp_f,
+        "price_min": price_min if price_min > 0 else None,
+        "price_max": price_max if price_max > 0 else None,
+        "status":    type_f if type_f and type_f != "الكل" else "",
+    })
+    if _chips_html:
+        st.markdown(_chips_html, unsafe_allow_html=True)
 
     # ── v32: Priority Score + Smart Sorting ──
     filtered = filtered.copy()
@@ -2984,13 +3061,7 @@ if page == "📊 لوحة التحكم":
     changes = get_price_changes(7)
     if changes:
         st.markdown("#### 🔔 تغييرات أسعار آخر 7 أيام")
-        c_df = pd.DataFrame(changes)
-        st.dataframe(c_df[["product_name","competitor","old_price","new_price",
-                            "price_diff","new_date"]].rename(columns={
-            "product_name": "المنتج", "competitor": "المنافس",
-            "old_price": "السعر السابق", "new_price": "السعر الجديد",
-            "price_diff": "التغيير", "new_date": "التاريخ"
-        }).head(200), use_container_width=True, height=200)
+        render_changes_table(changes, limit=200)
         st.markdown("---")
 
     if st.session_state.results:
@@ -3030,15 +3101,18 @@ if page == "📊 لوحة التحكم":
         </div>
         """, unsafe_allow_html=True)
 
-        # ── v33: KPI أداء التحليل ──
+        # ── v33: KPI أداء التحليل (شريط HTML واحد بدل st.metric) ──
         _analysis_total_dash = len(r.get("all", pd.DataFrame())) if isinstance(r.get("all", pd.DataFrame()), pd.DataFrame) else 0
         if _analysis_total_dash:
-            _kpi1, _kpi2, _kpi3 = st.columns(3)
-            _kpi1.metric("📊 منتجات مُحلَّلة", f"{_analysis_total_dash:,}")
-            _kpi2.metric("🔍 مفقود جديد", f"{_missing_h:,}")
+            render_kpi_row({
+                "total":    _analysis_total_dash,
+                "raise":    _raise_h,
+                "lower":    _lower_h,
+                "approved": _approved_h,
+                "missing":  _missing_h,
+            })
             _coverage = int((_approved_h + _lower_h) / max(_total_h, 1) * 100)
-            _kpi3.metric("🎯 تغطية تنافسية", f"{_coverage}%")
-            st.caption(f"ملخص آخر تحليل لـ **{_analysis_total_dash:,}** منتج.")
+            st.caption(f"ملخص آخر تحليل لـ **{_analysis_total_dash:,}** منتج · 🎯 تغطية تنافسية: **{_coverage}%**")
 
         # ── شريط تحقّق حفظ البيانات (Data Conservation) ──
         _rc = _reconciliation_check(r)
@@ -4324,58 +4398,57 @@ elif page == "🔍 منتجات مفقودة":
             opts = get_filter_options(df)
             st.markdown("---")
 
-            # صف 1: بحث + مستوى الثقة (أزرار ملوّنة)
-            _f1, _f2 = st.columns([4, 6])
-            with _f1:
-                search = st.text_input("🔎 بحث في الاسم/الماركة", key="miss_s", placeholder="اكتب للبحث...")
-            with _f2:
-                _conf_options = ["الكل", "🟢 مؤكد", "🟡 محتمل", "🔴 مشكوك"]
-                _conf_cols = st.columns(len(_conf_options))
-                conf_f = "الكل"
-                for _ci, _co in enumerate(_conf_options):
-                    with _conf_cols[_ci]:
-                        _is_active = st.session_state.get("miss_conf_active", "الكل") == _co
-                        _btn_type = "primary" if _is_active else "secondary"
-                        if st.button(_co, key=f"miss_conf_btn_{_ci}", type=_btn_type, use_container_width=True):
-                            st.session_state["miss_conf_active"] = _co
-                            st.rerun()
-                conf_f = st.session_state.get("miss_conf_active", "الكل")
+            # صف 1: مستوى الثقة (أزرار ملوّنة) — خارج الـ form لأنها تعتمد rerun فوري
+            _conf_options = ["الكل", "🟢 مؤكد", "🟡 محتمل", "🔴 مشكوك"]
+            _conf_cols = st.columns(len(_conf_options))
+            for _ci, _co in enumerate(_conf_options):
+                with _conf_cols[_ci]:
+                    _is_active = st.session_state.get("miss_conf_active", "الكل") == _co
+                    _btn_type = "primary" if _is_active else "secondary"
+                    if st.button(_co, key=f"miss_conf_btn_{_ci}", type=_btn_type, use_container_width=True):
+                        st.session_state["miss_conf_active"] = _co
+                        st.rerun()
+            conf_f = st.session_state.get("miss_conf_active", "الكل")
 
-            # صف 2: ماركة + منافس + نوع + تصنيف
-            _f3, _f4, _f5, _f6 = st.columns(4)
-            with _f3:
-                brand_f = st.selectbox("🏷️ الماركة", opts["brands"], key="miss_b")
-            with _f4:
-                comp_f = st.selectbox("🏪 المنافس", opts["competitors"], key="miss_c")
-            with _f5:
-                variant_f = st.selectbox("📦 النوع",
-                    ["الكل", "مفقود فعلاً", "يوجد تستر", "يوجد الأساسي"], key="miss_v")
-            with _f6:
-                _cat_opts = ["الكل", "🌸 عطور", "🧴 عناية", "💄 تجميل", "📦 أخرى"]
-                cat_f = st.selectbox("📋 التصنيف", _cat_opts, key="miss_cat")
-
-            # صف 3: نطاق السعر (slider)
+            # باقي الفلاتر داخل form — لا يُعاد الرسم عند كل حرف (تُطبَّق عند الضغط)
             _price_col = None
             for _pc in ("سعر_المنافس", "سعر المنافس", "السعر"):
                 if _pc in df.columns:
                     _price_col = _pc
                     break
-            if _price_col:
-                _prices = pd.to_numeric(df[_price_col], errors="coerce").dropna()
-                if not _prices.empty:
-                    _pmin = int(max(0, _prices.min()))
-                    _pmax = int(min(99999, _prices.max()))
-                    if _pmax > _pmin:
-                        _p_range = st.slider(
-                            "💰 نطاق السعر (ر.س)", _pmin, _pmax, (_pmin, _pmax),
-                            key="miss_price_range"
-                        )
+            with st.form(key="miss_filters_form", border=False):
+                search = st.text_input("🔎 بحث في الاسم/الماركة", key="miss_s", placeholder="اكتب للبحث...")
+                # صف 2: ماركة + منافس + نوع + تصنيف
+                _f3, _f4, _f5, _f6 = st.columns(4)
+                with _f3:
+                    brand_f = st.selectbox("🏷️ الماركة", opts["brands"], key="miss_b")
+                with _f4:
+                    comp_f = st.selectbox("🏪 المنافس", opts["competitors"], key="miss_c")
+                with _f5:
+                    variant_f = st.selectbox("📦 النوع",
+                        ["الكل", "مفقود فعلاً", "يوجد تستر", "يوجد الأساسي"], key="miss_v")
+                with _f6:
+                    _cat_opts = ["الكل", "🌸 عطور", "🧴 عناية", "💄 تجميل", "📦 أخرى"]
+                    cat_f = st.selectbox("📋 التصنيف", _cat_opts, key="miss_cat")
+
+                # صف 3: نطاق السعر (slider)
+                if _price_col:
+                    _prices = pd.to_numeric(df[_price_col], errors="coerce").dropna()
+                    if not _prices.empty:
+                        _pmin = int(max(0, _prices.min()))
+                        _pmax = int(min(99999, _prices.max()))
+                        if _pmax > _pmin:
+                            _p_range = st.slider(
+                                "💰 نطاق السعر (ر.س)", _pmin, _pmax, (_pmin, _pmax),
+                                key="miss_price_range"
+                            )
+                        else:
+                            _p_range = (_pmin, _pmax)
                     else:
-                        _p_range = (_pmin, _pmax)
+                        _p_range = None
                 else:
                     _p_range = None
-            else:
-                _p_range = None
+                st.form_submit_button("🔍 تطبيق الفلاتر", use_container_width=True, type="primary")
 
             st.markdown("---")
 
@@ -4419,6 +4492,16 @@ elif page == "🔍 منتجات مفقودة":
                 filtered = filtered.assign(
                     _conf_sort=filtered["مستوى_الثقة"].map(_conf_order).fillna(3)
                 ).sort_values("_conf_sort").drop(columns=["_conf_sort"])
+
+            # ── شريط شارات الفلاتر الفعّالة ──
+            _miss_chips = render_active_filter_chips_html({
+                "search":    search,
+                "brand":     brand_f,
+                "comp":      comp_f,
+                "status":    "" if conf_f == "الكل" else conf_f,
+            })
+            if _miss_chips:
+                st.markdown(_miss_chips, unsafe_allow_html=True)
 
             # ── عداد النتائج + إحصائيات التصنيف ──
             _fc1, _fc2, _fc3 = st.columns([2, 2, 6])
@@ -5127,9 +5210,16 @@ elif page == "🔍 منتجات مفقودة":
                         st.error(f"❌ تعذّر الفحص: {_e_dup}")
 
             # ── عرض المنتجات ──────────────────────────────────────────────
+            # طيّ تكرار العرض فقط (لا يمسّ الإجماليات ولا الإرسال — يبقى على filtered)
+            _display_df, _disp_dups = _dedup_missing_display(filtered)
+            if _disp_dups > 0:
+                st.caption(
+                    f"🔁 طُويت {_disp_dups} بطاقة مكرّرة بصرياً للعرض فقط "
+                    f"(الإجمالي والإرسال يبقيان على {len(filtered):,} منتج)"
+                )
             # ── v33: تنقل موحّد بأسهم وأرقام صفحات ──
-            _ms, _me, _mp = render_pagination(len(filtered), 20, "miss")
-            page_df = filtered.iloc[_ms:_me]
+            _ms, _me, _mp = render_pagination(len(_display_df), 20, "miss")
+            page_df = _display_df.iloc[_ms:_me]
 
             for idx, row in page_df.iterrows():
                 name  = str(row.get("منتج_المنافس", ""))
