@@ -2884,7 +2884,12 @@ with st.sidebar:
                         _pdf = pd.DataFrame(_partial)
                         if not _pdf.empty:
                             _pr = _split_results(_pdf)
-                            _pr["missing"] = pd.DataFrame()
+                            # FIX: لا تمسح المفقودات عند إعادة الرسم — احفظها من الجلسة ثم من الوظيفة
+                            _prev_miss = (st.session_state.get("results") or {}).get("missing")
+                            if isinstance(_prev_miss, pd.DataFrame) and not _prev_miss.empty:
+                                _pr["missing"] = _prev_miss
+                            else:
+                                _pr["missing"] = pd.DataFrame(job.get("missing", []) or [])
                             st.session_state.results = _pr
                             st.session_state.analysis_df = _pdf
                     except Exception:
@@ -3543,7 +3548,12 @@ if page == "📊 لوحة التحكم":
                 _partial_df = pd.DataFrame(_partial_recs)
                 if not _partial_df.empty:
                     _partial_r = _split_results(_partial_df)
-                    _partial_r["missing"] = pd.DataFrame()
+                    # FIX: حافظ على المفقودات عبر إعادة الرسم (الجلسة ثم الوظيفة الحية)
+                    _prev_miss = (st.session_state.get("results") or {}).get("missing")
+                    if isinstance(_prev_miss, pd.DataFrame) and not _prev_miss.empty:
+                        _partial_r["missing"] = _prev_miss
+                    else:
+                        _partial_r["missing"] = pd.DataFrame(_live_job.get("missing", []) or [])
                     st.session_state.results = _partial_r
                     st.session_state.analysis_df = _partial_df
                     st.caption(f"📊 {len(_partial_df):,} نتيجة جزئية معروضة في الأقسام")
