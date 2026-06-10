@@ -600,9 +600,23 @@ def save_job_progress(job_id, total, processed, results, status="running",
         trigger_gcs_sync(force=True)
 
 
-def get_job_progress(job_id):
+def get_job_progress(job_id, light=False):
+    """يجلب تقدّم الوظيفة.
+
+    light=True: وضع خفيف — يقرأ فقط (job_id, status, total, processed) بدون
+    عمودي results_json/missing_json (≈71MB) ودون json.loads. استخدمه في **كل**
+    فحوص الحالة/التقدم التي تعمل في كل rerun. حمّل النتائج الكاملة (light=False)
+    مرة واحدة فقط عند التطبيق الأول واحفظها في session_state — لا تُعد تحليلها.
+    """
     try:
         conn = get_db()
+        if light:
+            row = conn.execute(
+                "SELECT job_id, status, total, processed "
+                "FROM job_progress WHERE job_id=?", (job_id,)
+            ).fetchone()
+            conn.close()
+            return dict(row) if row else None
         row = conn.execute(
             "SELECT * FROM job_progress WHERE job_id=?", (job_id,)
         ).fetchone()
