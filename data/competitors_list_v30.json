@@ -106,5 +106,65 @@
     "store_url": "https://aromaticcloud.com/",
     "sitemap_url": "",
     "mahally_store_id": null
+  },
+  {
+    "name": "ميكس بيوتي",
+    "store_url": "https://mahally.com/stores/1977426468/",
+    "sitemap_url": "",
+    "mahally_store_id": 1977426468
+  },
+  {
+    "name": "افانتي للعطور",
+    "store_url": "https://mahally.com/stores/1427776510/",
+    "sitemap_url": "",
+    "mahally_store_id": 1427776510
+  },
+  {
+    "name": "بريميم مود",
+    "store_url": "https://mahally.com/stores/820726526/",
+    "sitemap_url": "",
+    "mahally_store_id": 820726526
+  },
+  {
+    "name": "سولارا",
+    "store_url": "https://mahally.com/stores/1700005346/",
+    "sitemap_url": "",
+    "mahally_store_id": 1700005346
+  },
+  {
+    "name": "نوادر ديور",
+    "store_url": "https://mahally.com/stores/201271244/",
+    "sitemap_url": "",
+    "mahally_store_id": 201271244
+  },
+  {
+    "name": "عين ازال للعطور",
+    "store_url": "https://mahally.com/stores/1823502735/",
+    "sitemap_url": "",
+    "mahally_store_id": 1823502735
+  },
+  {
+    "name": "بوين أروما",
+    "store_url": "https://mahally.com/stores/622532047/",
+    "sitemap_url": "",
+    "mahally_store_id": 622532047
+  },
+  {
+    "name": "Jadastore",
+    "store_url": "https://mahally.com/stores/1286092118/",
+    "sitemap_url": "",
+    "mahally_store_id": 1286092118
+  },
+  {
+    "name": "افنيوم للعطور",
+    "store_url": "https://mahally.com/stores/411934091/",
+    "sitemap_url": "",
+    "mahally_store_id": 411934091
+  },
+  {
+    "name": "العبادي للعطور",
+    "store_url": "https://mahally.com/stores/1448341371/",
+    "sitemap_url": "",
+    "mahally_store_id": 1448341371
   }
 ]
