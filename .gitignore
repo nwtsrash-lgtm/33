@@ -8,6 +8,7 @@ data/*.xlsx
 data/*.json
 !data/competitors_list_v30.json
 !data/config*.json
+!data/our_catalog_light.csv
 
 # ── Exports (ملفات التصدير) ──
 exports/
