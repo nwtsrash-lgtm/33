@@ -1,0 +1,43 @@
+# ── Data files (لا ترفع على GitHub) ──
+data/*.db
+data/*.db-shm
+data/*.db-wal
+data/*.sqlite
+data/*.csv
+data/*.xlsx
+data/*.json
+!data/competitors_list_v30.json
+!data/config*.json
+
+# ── Exports (ملفات التصدير) ──
+exports/
+
+# ── Temporary/scratch (but keep __init__.py!) ──
+_*.py
+!__init__.py
+!*/__init__.py
+__pycache__/
+*.pyc
+.env
+.streamlit/secrets.toml
+
+# ── IDE ──
+.vscode/
+.idea/
+
+# ── OS ──
+Thumbs.db
+.DS_Store
+
+# ── Logs / scratch ──
+debug-*.log
+*.log
+_*.out
+_*.err
+_*.txt
+_*.pkl
+
+# ── Claude Code local (لا ترفع) ──
+.claude/
+bench-*.py and bench_*.py
+bench_*.py
