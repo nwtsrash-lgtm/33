@@ -80,10 +80,12 @@ def _parse_gemini_keys():
     single = _s("GEMINI_API_KEY", "")
     if single and single not in keys:
         keys.append(single)
-    for n in ["GEMINI_KEY_1","GEMINI_KEY_2","GEMINI_KEY_3","GEMINI_KEY_4","GEMINI_KEY_5"]:
-        k = _s(n, "")
-        if k and k not in keys:
-            keys.append(k)
+    # يدعم صيغتي الترقيم حتى 30 مفتاحاً: GEMINI_KEY_N و GEMINI_API_KEY_N (تدوير المفاتيح)
+    for i in range(1, 31):
+        for n in (f"GEMINI_API_KEY_{i}", f"GEMINI_KEY_{i}"):
+            k = _s(n, "")
+            if k and k not in keys:
+                keys.append(k)
     keys = [k.strip() for k in keys if k and len(k) > 20]
     return keys
 
@@ -106,8 +108,8 @@ ANY_AI_PROVIDER_CONFIGURED = any_ai_provider_configured()
 # ══════════════════════════════════════════════════
 #  Make Webhooks
 # ══════════════════════════════════════════════════
-WEBHOOK_UPDATE_PRICES = _s("WEBHOOK_UPDATE_PRICES") or "https://hook.eu2.make.com/8jia6gc7s1cpkeg6catlrvwck768sbfk"
-WEBHOOK_NEW_PRODUCTS = _s("WEBHOOK_NEW_PRODUCTS") or "https://hook.eu2.make.com/xvubj23dmpxu8qzilstd25cnumrwtdxm"
+WEBHOOK_UPDATE_PRICES = _s("WEBHOOK_UPDATE_PRICES") or _os.environ.get("MAKE_WEBHOOK_URL", "")
+WEBHOOK_NEW_PRODUCTS = _s("WEBHOOK_NEW_PRODUCTS") or _os.environ.get("MAKE_WEBHOOK_URL_2", "")
 
 # ══════════════════════════════════════════════════
 #  إعدادات الألوان والمطابقة

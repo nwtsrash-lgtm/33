@@ -462,13 +462,36 @@ def miss_card(name=None, price=0, brand="", size="", ptype="", comp="", suggeste
         # ── دمج الإشارات الغنية (تستر / الثقة / النوع المتاح / تحذيرات التشابه) ──
         # شارة الثقة (تظهر للأصفر/الأحمر فقط — الأخضر هو الافتراضي الصامت)
         _conf = _safe_str(row.get("مستوى_الثقة", row.get("confidence_level", "green")), "green")
-        _conf_map = {"yellow": ("⚠️ محتمل", "#F59E0B"), "red": ("🚩 مشكوك", "#EF4444")}
+        _conf_map = {"yellow": ("⚠️ محتمل", "#F59E0B"), "red": ("🚩 مشكوك", "#EF4444"),
+                     "review": ("🔵 محتمل موجود — مراجعة", "#3B82F6")}
         conf_badge = ""
         if _conf in _conf_map:
             _ct, _cc = _conf_map[_conf]
             conf_badge = (f'<span style="font-size:.62rem;font-weight:700;padding:2px 8px;'
                           f'border-radius:8px;background:{_cc}1A;color:{_cc};'
                           f'border:1px solid {_cc}55;margin-left:6px">{_ct}</span>')
+        # شريط المراجعة: المنتج المرشّح لدينا (للحسم بـ AI أو يدوياً)
+        review_html = ""
+        if _conf == "review":
+            _rmatch = _safe_str(row.get("منتج_مطابق_محتمل", ""), "")
+            _rscore = _safe_float(row.get("درجة_التشابه", 0))
+            if _rmatch:
+                review_html = (
+                    f'<div style="margin-top:6px;padding:5px 10px;border-radius:8px;'
+                    f'background:#3B82F614;border:1px solid #3B82F655;font-size:.72rem;'
+                    f'color:#60A5FA;font-weight:700">🔵 يشبه منتجنا '
+                    f'<span style="color:#94A3B8;font-weight:400">({_rscore:.0f}%)</span> → '
+                    f'{_html_escape(_rmatch[:55])}</div>')
+        # قائمة المنافسين الذين يبيعون نفس المنتج (بعد الدمج العالمي)
+        comps_html = ""
+        _comps_all = _safe_str(row.get("المنافسون", ""), "")
+        _comp_names = [c.strip() for c in _comps_all.split("،") if c.strip()]
+        if len(_comp_names) > 1:
+            comps_html = (
+                f'<div style="margin-top:5px;font-size:.68rem;color:#94A3B8">'
+                f'🏪 يبيعه أيضاً: {_html_escape("، ".join(_comp_names[1:6]))}'
+                f'{" …" if len(_comp_names) > 6 else ""} '
+                f'<b>({len(_comp_names)} متجر)</b></div>')
         # شارة تستر
         tester_badge_h = ""
         if row.get("هو_تستر") or row.get("is_tester"):
@@ -504,6 +527,8 @@ def miss_card(name=None, price=0, brand="", size="", ptype="", comp="", suggeste
 <div class="miss-card-meta">{meta_html}</div>
 {badges_html}
 {variant_html}
+{review_html}
+{comps_html}
 {note_html}
 {sugg_html}
 </div>
@@ -511,7 +536,7 @@ def miss_card(name=None, price=0, brand="", size="", ptype="", comp="", suggeste
 {img_html}
 <div class="miss-card-price">{comp_price:,.0f}</div>
 <div class="miss-card-sar">ر.س</div>
-<div class="miss-card-badge">🆕 مفقود</div>
+<div class="miss-card-badge">{'🔵 مراجعة' if _conf == 'review' else '🆕 مفقود'}</div>
 </div>
 </div></div>"""
 
@@ -869,26 +894,45 @@ def render_active_filter_chips_html(filters: dict) -> str:
 
 
 def render_precise_stats(stats: dict) -> None:
-    """لوحة إحصائيات دقيقة — أرقام حقيقية فقط (لا تقديرات)."""
+    """لوحة إحصائيات دقيقة — أرقام حقيقية + نِسَب مئوية (لا تقديرات).
+
+    النِسَب تُحسب نسبةً لإجمالي المنتجات المُعالَجة (سعر أعلى + أقل + موافق +
+    مستبعد + مراجعة). «مفقود» رقمٌ فريد بعد الدمج العالمي (لا تكرار المنافسين).
+    """
     import streamlit as st
+    _raise    = int(stats.get("raise", 0))
+    _lower    = int(stats.get("lower", 0))
+    _approved = int(stats.get("approved", 0))
+    _excluded = int(stats.get("excluded", 0))
+    _review   = int(stats.get("review", 0))
+    _missing  = int(stats.get("missing", 0))
+    # إجمالي ما تمت معالجته فعلاً (المنتجات التي صُنِّفت بقرار سعري)
+    _processed = _raise + _lower + _approved + _excluded + _review
+
+    def _pct(v: int) -> str:
+        return f"{(v / _processed * 100):.0f}%" if _processed > 0 else "0%"
+
+    # (icon, label, value, color, pct_or_None)
     items = [
-        ("📦", "منتجاتنا",        int(stats.get("our_products", 0)),   "#818CF8"),
-        ("🏬", "إجمالي منافسين",  int(stats.get("total_competitors", 0)), "#38BDF8"),
-        ("🏪", "عدد المتاجر",     int(stats.get("stores", 0)),         "#22D3EE"),
-        ("🎴", "وُزِّع في بطاقات", int(stats.get("placed_in_cards", 0)), "#A78BFA"),
-        ("🔴", "سعر أعلى",        int(stats.get("raise", 0)),          "#EF4444"),
-        ("🟢", "سعر أقل",         int(stats.get("lower", 0)),          "#10B981"),
-        ("✅", "موافق",           int(stats.get("approved", 0)),       "#059669"),
-        ("⚪", "مستبعد",          int(stats.get("excluded", 0)),       "#94A3B8"),
-        ("🔍", "مفقود",           int(stats.get("missing", 0)),        "#F59E0B"),
-        ("⚠️", "مراجعة",          int(stats.get("review", 0)),         "#FB923C"),
+        ("📦", "منتجاتنا",        int(stats.get("our_products", 0)),      "#818CF8", None),
+        ("🏬", "إجمالي منافسين",  int(stats.get("total_competitors", 0)), "#38BDF8", None),
+        ("🏪", "عدد المتاجر",     int(stats.get("stores", 0)),            "#22D3EE", None),
+        ("⚙️", "تمت معالجتها",    _processed,                              "#A78BFA", None),
+        ("🔴", "سعر أعلى",        _raise,                                  "#EF4444", _pct(_raise)),
+        ("🟢", "سعر أقل",         _lower,                                  "#10B981", _pct(_lower)),
+        ("✅", "موافق",           _approved,                               "#059669", _pct(_approved)),
+        ("⚪", "مستبعد",          _excluded,                               "#94A3B8", _pct(_excluded)),
+        ("🔍", "مفقود فريد",      _missing,                                "#F59E0B", None),
+        ("⚠️", "تحت المراجعة",    _review,                                 "#FB923C", _pct(_review)),
     ]
     cells = "".join(
         f'<div class="ps-cell" style="border-top-color:{color}">'
         f'<div class="ps-ico">{icon}</div>'
-        f'<div class="ps-num" style="color:{color}">{value:,}</div>'
+        f'<div class="ps-num" style="color:{color}">{value:,}'
+        + (f' <span style="font-size:.6em;color:#94A3B8">({pct})</span>' if pct else '')
+        + f'</div>'
         f'<div class="ps-lbl">{label}</div></div>'
-        for icon, label, value, color in items
+        for icon, label, value, color, pct in items
     )
     st.markdown(f'<div dir="rtl" class="ps-grid">{cells}</div>', unsafe_allow_html=True)
 

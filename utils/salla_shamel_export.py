@@ -349,11 +349,56 @@ def _extract_brand(row: dict) -> str:
     return "غير متوفر"
 
 
+def _brand_from_name(pname: str) -> str:
+    """كشف الماركة من اسم المنتج عبر محرك الماركات — ضمان عدم ترك عمود الماركة فارغاً.
+
+    يُستخدم كملاذ أخير عندما لا يحمل الصف ماركة صريحة (طلب المالك: الماركة مملوءة دائماً).
+    """
+    if not pname:
+        return ""
+    try:
+        from engines.engine import extract_brand as _eng_extract_brand
+        b = _eng_extract_brand(pname)
+        if b:
+            # خذ الجزء العربي من «عربي | English» إن كان ثنائياً
+            b = b.split("|")[0].strip() if "|" in b else b.strip()
+            return _safe_str(b)[:60]
+    except Exception:
+        pass
+    return ""
+
+
+def _generate_sku(brand: str, pname: str, size: str) -> str:
+    """يولّد رمز SKU فريداً وثابتاً (deterministic) عند غياب SKU في المصدر.
+
+    نفس المنتج (ماركة+اسم+حجم) ⇒ نفس الرمز، ومنتجات مختلفة ⇒ رموز مختلفة،
+    لضمان عمود «رمز المنتج sku» غير فارغ ولا يتكرر بين منتجين مختلفين.
+    """
+    import hashlib
+    base = _norm_text(f"{brand}|{pname}|{size}") or _norm_text(pname) or "mahwous"
+    h = hashlib.md5(base.encode("utf-8")).hexdigest()[:10].upper()
+    return f"MH-{h}"
+
+
+# كشف الجنس من اسم المنتج — النسائي أولاً لأن "women/woman" تحتوي "men/man"
+_GENDER_NAME_PATTERNS = [
+    (("نسائي", "نسائى", "نساء", "للنساء", "women", "woman", "femme", "for her"), "نسائي"),
+    (("رجالي", "رجالى", "رجال", "للرجال", "men", "man", "homme", "for him"), "رجالي"),
+    (("للجنسين", "مشترك", "unisex"), "للجنسين"),
+]
+
+
 def _extract_gender(row: dict) -> str:
     for k in ("الجنس", "gender_hint", "Gender", "gender"):
         v = _safe_str(row.get(k, ""))
         if v:
             return v
+    # ملاذ أخير: استنتج الجنس من اسم المنتج لضمان تصنيف صحيح (رجالي/نسائي/مشترك)
+    name = _extract_product_name(row).lower()
+    if name:
+        for kws, label in _GENDER_NAME_PATTERNS:
+            if any(kw in name for kw in kws):
+                return label
     return "للجنسين"
 
 
@@ -543,6 +588,9 @@ def build_salla_shamel_dataframe(
         top_n, heart_n, base_n = _extract_notes(r)
         img_alt = _sanitize_alt_text(pname) if pname else ""  # FIX: Salla Strict CSV Validation
         safe_brand = _resolve_brand_safe(brand)  # FIX: Salla Strict CSV Validation
+        # ضمان عدم ترك الماركة فارغة: اكشفها من اسم المنتج كملاذ أخير
+        if not safe_brand:
+            safe_brand = _brand_from_name(pname)
 
         # Phase 3: استخدام الوصف المُولَّد من AI إن وُجد (من خط المعالجة الذكية)
         _ai_desc_raw = _safe_str(r.get("وصف_AI", ""))
@@ -576,8 +624,14 @@ def build_salla_shamel_dataframe(
         out["سعر المنتج"]                = price
         out["الوصف"]                     = description
         out["هل يتطلب شحن؟"]            = "نعم"
-        # FIX: extract SKU from input row if available (e.g. magic factory)
-        out["رمز المنتج sku"]            = _safe_str(r.get("رمز المنتج sku", ""))
+        # FIX: extract SKU from input row if available (e.g. magic factory / scraper),
+        # وإلا ولّد رمزاً فريداً ثابتاً لضمان عمود SKU غير فارغ وغير مكرر
+        _sku_in = (
+            _safe_str(r.get("رمز المنتج sku", ""))
+            or _safe_str(r.get("sku", ""))
+            or _safe_str(r.get("SKU", ""))
+        )
+        out["رمز المنتج sku"]            = _sku_in or _generate_sku(safe_brand, pname, size)
         out["سعر التكلفة"]               = ""
         # السعر المخفض = سعر المنافس − 1 ريال
         try:

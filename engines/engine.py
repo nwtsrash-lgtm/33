@@ -101,10 +101,12 @@ def _load_gemini_keys_from_env():
                 keys += [k.strip() for k in v.split(",") if k.strip()]
         else:
             keys += [k.strip() for k in v.split(",") if k.strip()]
-    for i in range(1, 10):
-        k = _os.environ.get(f"GEMINI_KEY_{i}", "")
-        if k.strip():
-            keys.append(k.strip())
+    # يدعم صيغتي الترقيم: GEMINI_KEY_N و GEMINI_API_KEY_N (حتى 30 مفتاحاً لتدويرها)
+    for i in range(1, 31):
+        for _pat in (f"GEMINI_API_KEY_{i}", f"GEMINI_KEY_{i}"):
+            k = _os.environ.get(_pat, "")
+            if k.strip():
+                keys.append(k.strip())
     for env_name in ["GEMINI_API_KEY", "GEMINI_KEY"]:
         k = _os.environ.get(env_name, "")
         if k.strip():
@@ -269,7 +271,7 @@ _SYN = {
     # كلمات عطرية شائعة
     "عنبر":"amber","عنبري":"amber","امبر":"amber",
     "عود":"oud","عودي":"oud",
-    "مسك":"musk","مسكي":"musk",
+    "مسك":"musk","مسكي":"musk","موسك":"musk",
     "زعفران":"saffron","زعفراني":"saffron",
     "بخور":"incense","بخوري":"incense",
     "فانيلا":"vanilla","فانيليا":"vanilla",
@@ -1007,6 +1009,22 @@ def extract_size(text):
     ml = re.findall(r'(\d+(?:\.\d+)?)\s*(?:ml|مل|ملي|milliliter)', tl)
     return float(ml[0]) if ml else 0.0
 
+@_functools.lru_cache(maxsize=20000)
+def extract_brand_fast(text):
+    """ماركة سريعة: المرحلة المباشرة فقط (بدون تصحيح إملائي ضبابي).
+    ~0.5ms/استدعاء مقابل ~6ms لـ extract_brand — للحجب الجماعي (المفقودات).
+    تُعيد ماركة KNOWN_BRANDS قانونية (متّسقة على الطرفين) أو "".
+    """
+    if not isinstance(text, str) or not text:
+        return ""
+    n = normalize(text)
+    tl = text.lower()
+    for b_orig, b_norm, b_low in _get_brand_normalized_pairs():
+        if b_norm in n or b_low in tl:
+            return b_orig
+    return ""
+
+
 @_functools.lru_cache(maxsize=2000)
 def extract_brand(text):
     if not isinstance(text, str): return ""
@@ -1185,6 +1203,13 @@ def classify_product(name):
     """تصنيف المنتج حسب أولوية: rejected > set > tester > after_shave > body_lotion > shower_gel > hair_mist > body_mist > other > retail"""
     if not isinstance(name, str): return "retail"
     nl = name.lower()
+    # ⚡ الفحص يعمل على النص الخام + النص المُطبّع معاً (يلتقط صيغ الهمزات/المرادفات)
+    try:
+        _nn = normalize(name)
+    except Exception:
+        _nn = ""
+    if _nn:
+        nl = (nl + " " + _nn).strip()
     # 1. مرفوض (أعلى أولوية) — عينات ومنتجات صغيرة جداً
     if any(w in nl for w in ['sample','عينة','عينه','miniature','مينياتشر','travel size','decant','تقسيم','تقسيمة','split']):
         return 'rejected'
@@ -1211,14 +1236,14 @@ def classify_product(name):
     # 5. لوشن جسم
     if re.search(r'\bbody\s*lotion\b|لوشن\s*جسم|كريم\s*جسم|بودي\s*لوشن|body\s*cream|body\s*milk', nl):
         return 'body_lotion'
-    # 6. جل استحمام
-    if re.search(r'\bshower\s*gel\b|جل\s*استحمام|شاور\s*جل|body\s*wash|غسول\s*جسم', nl):
+    # 6. جل استحمام / شامبو / صابون سائل
+    if re.search(r'\bshower\s*gel\b|جل\s*استحمام|شاور\s*جل|body\s*wash|غسول\s*جسم|شامبو|shampoo|بلسم\b|conditioner', nl):
         return 'shower_gel'
     # 7. hair mist: كلمات كاملة فقط (لتجنب "هيريرا" → hair_mist)
-    if re.search(r'\bhair\s*mist\b|عطر\s*شعر|معطر\s*شعر|للشعر|\bhair\b', nl):
+    if re.search(r'\bhair\s*mist\b|عطر\s*شعر|معطر\s*شعر|بخاخ\s*شعر|للشعر|\bhair\b', nl):
         return 'hair_mist'
-    # 8. body mist: كلمات كاملة فقط
-    if re.search(r'\bbody\s*mist\b|بودي\s*مست|بخاخ\s*جسم|معطر\s*جسم|\bbody\s*spray\b', nl):
+    # 8. body mist / سبلاش / معطر جسم: كلمات كاملة فقط
+    if re.search(r'\bbody\s*mist\b|بودي\s*مست|بخاخ\s*جسم|معطر\s*جسم|سبلاش|\bsplash\b|\bbody\s*splash\b|\bbody\s*spray\b', nl):
         return 'body_mist'
     # 9. مزيل عرق/ديودرنت (v31.11c)
     if re.search(r'مزيل\s*عرق|مزيل\s*العرق|ديودرنت|ديودورنت|deodorant|deo\b|anti.?perspirant|مضاد\s*التعرق', nl):
@@ -2214,6 +2239,7 @@ def _excluded_match_row(
     gender,
     our_img="",
     our_url="",
+    no="",
     *,
     score=0.0,
     مصدر_المطابقة="filtered_out",
@@ -2232,6 +2258,7 @@ def _excluded_match_row(
         الحجم=sz_str,
         النوع=ptype,
         الجنس=gender,
+        NO=str(no or ""),
         منتج_المنافس="❌ لم يتجاوز فلاتر المطابقة / لا يوجد",
         معرف_المنافس="",
         سعر_المنافس=0.0,
@@ -2256,11 +2283,12 @@ def _excluded_match_row(
 # ═══════════════════════════════════════════════════════
 def _row(product, our_price, our_id, brand, size, ptype, gender,
          best=None, override=None, src="", all_cands=None,
-         our_img="", our_url=""):
+         our_img="", our_url="", no=""):
     sz_str = f"{int(size)}ml" if size else ""
     if best is None:
         return dict(المنتج=product, معرف_المنتج=our_id, السعر=our_price,
                     الماركة=brand, الحجم=sz_str, النوع=ptype, الجنس=gender,
+                    NO=str(no or ""),
                     منتج_المنافس="—", معرف_المنافس="", سعر_المنافس=0,
                     الفرق=0, نسبة_التطابق=0, ثقة_AI="—",
                     القرار=override or "🔍 منتجات مفقودة",
@@ -2305,7 +2333,7 @@ def _row(product, our_price, our_id, brand, size, ptype, gender,
     elif score < NO_MATCH_THRESHOLD:
         return _excluded_match_row(
             product, our_price, our_id, brand, size, ptype, gender,
-            our_img=our_img, our_url=our_url,
+            our_img=our_img, our_url=our_url, no=no,
             score=score,
             مصدر_المطابقة="score_below_60",
         )
@@ -2408,6 +2436,7 @@ def _row(product, our_price, our_id, brand, size, ptype, gender,
 
     return dict(المنتج=product, معرف_المنتج=our_id, السعر=our_price,
                 الماركة=brand, الحجم=sz_str, النوع=ptype, الجنس=gender,
+                NO=str(no or ""),
                 منتج_المنافس=cheapest["name"], معرف_المنافس=cheapest.get("product_id", ""),
                 سعر_المنافس=cp_display, الفرق=diff_display,
                 نسبة_التطابق=score_display, ثقة_AI=ai_lbl,
@@ -2590,6 +2619,8 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
         "رابط المنتج", "الرابط", "رابط", "product_url", "link", "url", "URL",
     ])
     our_brand_col = _fcol_optional(our_df, ["الماركة", "Brand", "brand", "البراند"])
+    # رقم No. من كتالوجنا — Primary Key المُرسَل لـ Make/سلة عند تحديث السعر
+    our_no_col = _fcol_optional(our_df, ["No.", "NO", "no", "No"])
 
     # ⚡ v22: Enrich brand vocabulary with competitor brands BEFORE building indices
     enrich_known_brands(comp_dfs=comp_dfs)
@@ -2666,7 +2697,8 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                               it["brand"], it["size"], it["ptype"], it["gender"],
                               best_fallback, "⚠️ تحت المراجعة", "ai_uncertain",
                               all_cands=it["all_cands"],
-                              our_img=it.get("our_img", ""), our_url=it.get("our_url", ""))
+                              our_img=it.get("our_img", ""), our_url=it.get("our_url", ""),
+                              no=it.get("our_no", ""))
                     _cid = _cand_comp_id(best_fallback)
                     if _cid:
                         _led.mark_state(_cid, CONFIRMED_MATCH,
@@ -2677,7 +2709,8 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                     rr = _row(it["product"], it["our_price"], it["our_id"],
                               it["brand"], it["size"], it["ptype"], it["gender"],
                               best, src="gemini", all_cands=it["all_cands"],
-                              our_img=it.get("our_img", ""), our_url=it.get("our_url", ""))
+                              our_img=it.get("our_img", ""), our_url=it.get("our_url", ""),
+                              no=it.get("our_no", ""))
                     _cid = _cand_comp_id(best)
                     if _cid:
                         _led.mark_state(_cid, CONFIRMED_MATCH,
@@ -2716,6 +2749,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
 
     for i, (_, row) in enumerate(our_df.iterrows()):
         product = str(row.get(our_col, "")).strip()
+        our_no  = _cell_clean(row, our_no_col)
         if not product:
             audit_stats["skipped_empty"] += 1
             # v31.6: لا نفقد المنتج — نضيفه في النتائج
@@ -2723,6 +2757,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                 "(اسم فارغ)", 0.0, _pid(row, our_id_col), "", 0, "", "",
                 our_img=_cell_clean(row, our_img_col),
                 our_url=_cell_clean(row, our_url_col),
+                no=our_no,
                 score=0, مصدر_المطابقة="skipped_empty_name",
             ))
             if progress_callback:
@@ -2739,6 +2774,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                 product, 0.0, _pid(row, our_id_col), "", extract_size(product), "", "",
                 our_img=_cell_clean(row, our_img_col),
                 our_url=_cell_clean(row, our_url_col),
+                no=our_no,
                 score=0, مصدر_المطابقة="excluded_set_product",
             ))
             if progress_callback:
@@ -2753,6 +2789,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                 product, 0.0, _pid(row, our_id_col), "", size_ml, "", "",
                 our_img=_cell_clean(row, our_img_col),
                 our_url=_cell_clean(row, our_url_col),
+                no=our_no,
                 score=0, مصدر_المطابقة="skipped_micro_size",
             ))
             if progress_callback:
@@ -2804,7 +2841,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
             results.append(
                 _excluded_match_row(
                     product, our_price, our_id, display_brand, size, ptype, gender,
-                    our_img=our_img, our_url=our_url,
+                    our_img=our_img, our_url=our_url, no=our_no,
                     score=0.0,
                     مصدر_المطابقة="no_candidates",
                 )
@@ -2826,7 +2863,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
             results.append(
                 _excluded_match_row(
                     product, our_price, our_id, display_brand, size, ptype, gender,
-                    our_img=our_img, our_url=our_url,
+                    our_img=our_img, our_url=our_url, no=our_no,
                     score=float(best0.get("score") or 0),
                     مصدر_المطابقة="below_match_threshold",
                 )
@@ -2843,7 +2880,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
         if best0["score"] >= 90 or not use_ai:  # v31.7: خفض من 97 إلى 90 — مطابقات fuzzy موثوقة تتخطى AI
             row_result = _row(product, our_price, our_id, brand, size, ptype, gender,
                               best0, src="auto", all_cands=all_cands,
-                              our_img=our_img, our_url=our_url)
+                              our_img=our_img, our_url=our_url, no=our_no)
             if row_result is not None:   # ← فلتر None
                 results.append(row_result)
                 _cid = _cand_comp_id(best0)
@@ -2856,7 +2893,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                 audit_stats["dropped_none"] = audit_stats.get("dropped_none", 0) + 1
                 results.append(_excluded_match_row(
                     product, our_price, our_id, brand, size, ptype, gender,
-                    our_img=our_img, our_url=our_url,
+                    our_img=our_img, our_url=our_url, no=our_no,
                     score=float(best0.get("score") or 0),
                     مصدر_المطابقة="row_returned_none",
                 ))
@@ -2866,7 +2903,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                 brand=brand, size=size, ptype=ptype, gender=gender,
                 candidates=top5, all_cands=all_cands,
                 our=product, price=our_price,
-                our_img=our_img, our_url=our_url,
+                our_img=our_img, our_url=our_url, our_no=our_no,
             ))
             if len(pending) >= BATCH:
                 _flush()
@@ -3078,8 +3115,8 @@ def find_missing_products(our_df, comp_dfs):
 
         # ── قرار النوع المطابق ─────────────────────────────────────────
         # بعد normalize_aggressive: 75% كافية للتأكد (الضجيج محذوف)
-        CONFIRMED = 75   # ← خُفِّض من 82% لأن normalize_aggressive يُصفّي الضجيج
-        SIMILAR   = 60   # ← حد "مشابه محتمل" — يظهر للمستخدم مع تحذير
+        CONFIRMED = 82   # ← رُفِع إلى 82%: فقط ثقة 82%+ أننا نملكه تُستبعد من المفقودة
+        SIMILAR   = 70   # ← رُفِع إلى 70%: حد "مشابه محتمل" — يظهر للمستخدم مع تحذير
 
         if best_same[0] >= CONFIRMED:
             return True, best_same[0], best_same[2], None
@@ -3107,6 +3144,10 @@ def find_missing_products(our_df, comp_dfs):
     # ── البحث الرئيسي ─────────────────────────────────────────────────
     missing  = []
     seen_bare = set()   # مفاتيح إزالة التكرار داخل نفس المنافس فقط
+    # عدّادات أسباب الاستبعاد (الإصلاح 1 + تقرير التشخيص)
+    _drop_nosize = 0
+    _drop_mini   = 0
+    _MIN_SIZE_ML = 10.0
 
     def _cell_str(r, col):
         if not col or col not in r.index:
@@ -3177,6 +3218,13 @@ def find_missing_products(our_df, comp_dfs):
                 continue
             # رفض الأسماء القصيرة جداً (أقل من 8 حروف)
             if len(cp.strip()) < 8:
+                continue
+            # ── الإصلاح 1: فلتر الحجم — عطر بلا حجم أو ميني < 10مل لا يدخل المفقودة ──
+            if not c_size or c_size <= 0:
+                _drop_nosize += 1
+                continue
+            if c_size < _MIN_SIZE_ML:
+                _drop_mini += 1
                 continue
 
             # ── Cross-check الأول: بالـ normalize_aggressive ─────────
@@ -3272,6 +3320,47 @@ def find_missing_products(our_df, comp_dfs):
                 entry["نسبة_التشابه"]   = 0.0
 
             missing.append(entry)
+
+    # ── دمج عالمي (Global Dedup) ────────────────────────────────────────
+    # نفس المنتج يَرِد مرة لكل منافس (5 منافسين = 5 سجلات). ندمجها في سجل
+    # واحد: المفتاح = (الماركة المطبَّعة + الاسم العاري بعد إزالة الحجم/التركيز).
+    # نُبقي أقل سعر، ونحفظ أسماء كل المنافسين في حقل «المنافسون».
+    _before_dedup = len(missing)
+    if missing:
+        _merged: dict = {}
+        for _e in missing:
+            _bn = re.sub(r"\btester\b|تستر|tester", "",
+                         normalize_name(_e.get("منتج_المنافس", ""))).strip()
+            if not _bn:
+                _bn = normalize(_e.get("منتج_المنافس", ""))
+            _key = (normalize(_e.get("الماركة", "")), _bn)
+            _cn = str(_e.get("المنافس", "") or "").strip()
+            _pr_new = float(_e.get("سعر_المنافس", 0) or 0)
+            _ex = _merged.get(_key)
+            if _ex is None:
+                _e["المنافسون"] = [_cn] if _cn else []
+                _merged[_key] = _e
+                continue
+            # احفظ اسم المنافس الجديد
+            if _cn and _cn not in _ex["المنافسون"]:
+                _ex["المنافسون"].append(_cn)
+            # أبقِ السجل صاحب أقل سعر (مع الحفاظ على قائمة المنافسين المُجمَّعة)
+            _pr_old = float(_ex.get("سعر_المنافس", 0) or 0)
+            if _pr_new > 0 and (_pr_old <= 0 or _pr_new < _pr_old):
+                _e["المنافسون"] = _ex["المنافسون"]
+                _merged[_key] = _e
+        missing = list(_merged.values())
+        # حوّل قائمة المنافسين إلى نص للعرض
+        for _e in missing:
+            _lst = _e.get("المنافسون", [])
+            _e["المنافسون"] = "، ".join([x for x in _lst if x]) if isinstance(_lst, list) else str(_lst or "")
+    _after_dedup = len(missing)
+    try:
+        print(f"[find_missing_products] فلتر الحجم: بلا_حجم={_drop_nosize} "
+              f"ميني<10مل={_drop_mini} | دمج عالمي: قبل={_before_dedup} "
+              f"بعد={_after_dedup} مُدمَج={_before_dedup - _after_dedup}")
+    except Exception:
+        pass
 
     return pd.DataFrame(missing) if missing else pd.DataFrame()
 
@@ -3475,7 +3564,7 @@ def _our_sku_set(our_df: pd.DataFrame) -> set:
     return out
 
 
-def smart_missing_barrier(missing_df: pd.DataFrame, our_df: pd.DataFrame, threshold: int = 88) -> pd.DataFrame:
+def smart_missing_barrier(missing_df: pd.DataFrame, our_df: pd.DataFrame, threshold: int = 92) -> pd.DataFrame:
     """
     محرك الحاجز الذكي: الفلتر النهائي قبل دخول المنتجات لقسم المفقودات.
     يضمن عدم تكرار عبر مطابقة الـ SKU والـ Fuzzy Matching الصارم مع كتالوجنا.

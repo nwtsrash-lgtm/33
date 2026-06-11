@@ -29,6 +29,14 @@ _GF_PRICE_MIN = "_gf_price_min"  # Task 3.1 — price range lower bound
 _GF_PRICE_MAX = "_gf_price_max"  # Task 3.1 — price range upper bound
 _GF_DATE      = "_gf_date"       # Task 3.1 — date added period
 _GF_STOCK     = "_gf_stock"      # Task 3.1 — inventory status (hook, future)
+_GF_CHANGE    = "_gf_change"     # حالة التغيير: جديد / تغيّر السعر (مقارنةً بالتحليل السابق)
+
+# خيارات فلتر «حالة التغيير» → القيمة المخزّنة في عمود «حالة_التغيير»
+_CHANGE_OPTIONS = {
+    "الكل": None,
+    "🆕 المنتجات الجديدة": "🆕 جديد",
+    "🔄 المتغير أسعارها": "🔄 تغيّر السعر",
+}
 
 # Date-period labels → timedelta offset from today
 _DATE_OPTIONS = {
@@ -154,6 +162,18 @@ def render_sidebar_filters(df: pd.DataFrame) -> None:
     else:
         st.session_state.setdefault(_GF_DATE, "كل الفترات")
 
+    # حالة التغيير — يظهر فقط بعد تحليل تراكمي (عمود «حالة_التغيير» موجود وبه قيم)
+    if ("حالة_التغيير" in df.columns
+            and df["حالة_التغيير"].astype(str).str.strip().ne("").any()):
+        st.sidebar.selectbox(
+            "🔔 حالة التغيير",
+            list(_CHANGE_OPTIONS.keys()),
+            key=_GF_CHANGE,
+            help="المنتجات الجديدة أو التي تغيّر سعرها مقارنةً بالتحليل السابق",
+        )
+    else:
+        st.session_state.setdefault(_GF_CHANGE, "الكل")
+
     # Inventory status hook — shown only if column exists (scraped data)
     _stock_vals = _unique_vals(df, "availability")
     if _stock_vals:
@@ -169,7 +189,7 @@ def render_sidebar_filters(df: pd.DataFrame) -> None:
     # Reset button — clears all v2 filters in one click
     if st.sidebar.button("🔄 مسح الفلاتر المتقدمة", key="_gf_reset_adv"):
         for _k in (_GF_GENDER, _GF_SIZE, _GF_PRICE_MIN, _GF_PRICE_MAX,
-                   _GF_DATE, _GF_STOCK):
+                   _GF_DATE, _GF_STOCK, _GF_CHANGE):
             st.session_state.pop(_k, None)
         st.rerun()
 
@@ -195,12 +215,14 @@ def apply_global_filters(df: pd.DataFrame) -> pd.DataFrame:
     price_max_v = float(st.session_state.get(_GF_PRICE_MAX, 0.0) or 0.0)
     date_v      = str(st.session_state.get(_GF_DATE,      "كل الفترات") or "كل الفترات")
     stock_v     = str(st.session_state.get(_GF_STOCK,     "الكل") or "الكل")
+    change_v    = str(st.session_state.get(_GF_CHANGE,    "الكل") or "الكل")
 
     # Fast path: nothing active
     _no_v1 = brand_v == "الكل" and risk_v == "الكل" and not search_v
     _no_v2 = (gender_v == "الكل" and size_v == "الكل"
               and price_min_v == 0.0 and price_max_v == 0.0
-              and date_v == "كل الفترات" and stock_v == "الكل")
+              and date_v == "كل الفترات" and stock_v == "الكل"
+              and change_v == "الكل")
     if _no_v1 and _no_v2:
         return df
 
@@ -254,6 +276,11 @@ def apply_global_filters(df: pd.DataFrame) -> pd.DataFrame:
     if stock_v != "الكل" and "availability" in result.columns:
         result = result[result["availability"].astype(str) == stock_v]
 
+    # حالة التغيير (جديد / تغيّر السعر)
+    _change_target = _CHANGE_OPTIONS.get(change_v)
+    if _change_target is not None and "حالة_التغيير" in result.columns:
+        result = result[result["حالة_التغيير"].astype(str) == _change_target]
+
     return result.reset_index(drop=True)
 
 
@@ -274,6 +301,7 @@ def get_active_filter_summary() -> str:
     price_max_v = float(st.session_state.get(_GF_PRICE_MAX, 0.0) or 0.0)
     date_v      = str(st.session_state.get(_GF_DATE,      "كل الفترات") or "كل الفترات")
     stock_v     = str(st.session_state.get(_GF_STOCK,     "الكل") or "الكل")
+    change_v    = str(st.session_state.get(_GF_CHANGE,    "الكل") or "الكل")
 
     if brand_v  != "الكل":         _parts.append(f"ماركة: {brand_v}")
     if risk_v   != "الكل":         _parts.append(f"خطورة: {risk_v}")
@@ -286,6 +314,7 @@ def get_active_filter_summary() -> str:
         _parts.append(f"سعر: {_p_lo}–{_p_hi}")
     if date_v   != "كل الفترات":   _parts.append(f"تاريخ: {date_v}")
     if stock_v  != "الكل":         _parts.append(f"مخزون: {stock_v}")
+    if change_v != "الكل":         _parts.append(f"تغيير: {change_v}")
 
     return " | ".join(_parts) if _parts else ""
 

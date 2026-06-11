@@ -386,21 +386,80 @@ class AdvancedScraper:
                     image_url = urljoin(url, el["src"])
                     break
 
+        # ── الوصف + SKU + الماركة — meta tags ثم JSON-LD (Schema.org) ──────
+        description, sku, brand = self._extract_meta_fields(soup, html)
+
         return {
             "url": url,
             "store": store_name,
             "product_name": product_name[:200],
             "price": price or 0.0,
             "image_url": image_url,
+            "description": description,
+            "sku": sku,
+            "brand": brand,
             "success": price is not None and price > 0,
         }
+
+    @staticmethod
+    def _extract_meta_fields(soup, html: str):
+        """يستخرج (الوصف، SKU، الماركة) من meta tags و JSON-LD.
+
+        الأولوية: meta tags (سريعة، أعلى الصفحة) ثم json_ld_extractor كاحتياط
+        أكثر دقة (Schema.org Product). يُرجع نصوصاً نظيفة أو "".
+        """
+        description = sku = brand = ""
+
+        # 1) og:description / meta description
+        for finder in (
+            lambda: soup.find("meta", property="og:description"),
+            lambda: soup.find("meta", attrs={"name": "description"}),
+            lambda: soup.find("meta", attrs={"name": "twitter:description"}),
+        ):
+            tag = finder()
+            if tag and tag.get("content", "").strip():
+                description = tag["content"].strip()[:1200]
+                break
+
+        # 2) SKU من meta tags الشائعة
+        sku_tag = (
+            soup.find("meta", property="product:retailer_item_id")
+            or soup.find("meta", attrs={"name": "sku"})
+            or soup.find("meta", property="og:sku")
+        )
+        if sku_tag and sku_tag.get("content", "").strip():
+            sku = sku_tag["content"].strip()[:120]
+
+        # 3) JSON-LD (Schema.org) — أدقّ مصدر للماركة الحقيقية، ويملأ أي نقص.
+        #    ملاحظة: متاجر سلة تضع اسم المتجر في product:brand، لذا نُفضّل
+        #    ماركة JSON-LD أولاً ثم نرجع لـ meta كاحتياط.
+        ld_brand = ""
+        try:
+            from engines.json_ld_extractor import extract as _ld_extract
+            ld = _ld_extract(html) or {}
+            ld_brand = str(ld.get("brand", "")).strip()[:80]
+            description = description or str(ld.get("description", ""))[:1200]
+            sku = sku or str(ld.get("sku", ""))[:120]
+        except Exception:
+            pass
+
+        if ld_brand:
+            brand = ld_brand
+        else:
+            brand_tag = soup.find("meta", property="product:brand") or soup.find("meta", property="og:brand")
+            if brand_tag and brand_tag.get("content", "").strip():
+                brand = brand_tag["content"].strip()[:80]
+
+        return description, sku, brand
 
     @staticmethod
     def _fail_result(url: str, store_name: str) -> Dict[str, Any]:
         return {
             "url": url, "store": store_name,
             "product_name": url.split("/")[-1].replace("-", " "),
-            "price": 0.0, "image_url": "", "success": False,
+            "price": 0.0, "image_url": "",
+            "description": "", "sku": "", "brand": "",
+            "success": False,
         }
 
     async def scrape_batch(
@@ -569,6 +628,7 @@ async def run_advanced_price_scraping(
                         "price":       r["price"],
                         "product_url": r["url"],
                         "image_url":   r.get("image_url", ""),
+                        "brand":       r.get("brand", ""),
                     })
 
                 if len(buffer) >= flush_every:

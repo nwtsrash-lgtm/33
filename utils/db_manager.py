@@ -2059,11 +2059,13 @@ def upsert_competitor_products(
                     """UPDATE competitor_products_store
                        SET price=?, updated_at=?,
                            image_url=COALESCE(NULLIF(?,''),(SELECT image_url FROM competitor_products_store WHERE id=?)),
-                           product_url=COALESCE(NULLIF(?,''),(SELECT product_url FROM competitor_products_store WHERE id=?))
+                           product_url=COALESCE(NULLIF(?,''),(SELECT product_url FROM competitor_products_store WHERE id=?)),
+                           brand=COALESCE(NULLIF(?,''),(SELECT brand FROM competitor_products_store WHERE id=?))
                        WHERE id=?""",
                     (price, today,
                      str(p.get("image_url","") or ""), existing[0],
                      str(p.get("product_url","") or ""), existing[0],
+                     str(p.get("brand","") or ""), existing[0],
                      existing[0])
                 )
                 updated += 1

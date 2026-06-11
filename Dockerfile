@@ -3,22 +3,16 @@ FROM python:3.12-slim-bookworm
 
 WORKDIR /app
 
-# Use the app-local data directory by default. Set DATA_DIR only when you
-# intentionally mount persistent storage or want a custom writable path.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    CHROME_BIN=/usr/bin/chromium \
-    CHROME_PATH=/usr/lib/chromium/
+    PIP_NO_CACHE_DIR=1
 
-# Install build dependencies + curl for healthcheck + Chromium for Selenium
+# Install build dependencies + curl for healthcheck
 RUN apt-get update && apt-get install -y --no-install-recommends \
     gcc \
     g++ \
     libffi-dev \
     curl \
-    chromium \
-    chromium-driver \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .

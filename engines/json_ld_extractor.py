@@ -105,10 +105,22 @@ def _extract_from_jsonld(html: str) -> Dict[str, Any]:
                 img = img[0] if img else ""
             if isinstance(img, dict):
                 img = img.get("url", "")
+            # SKU: حقول Schema.org الشائعة بالترتيب
+            sku = (
+                node.get("sku") or node.get("mpn")
+                or node.get("productID") or node.get("gtin13")
+                or node.get("gtin") or ""
+            )
+            brand = node.get("brand")
+            if isinstance(brand, dict):
+                brand = brand.get("name", "")
             return {
                 "price":    price,
                 "name":     str(node.get("name", "")).strip()[:250],
                 "image":    str(img or "").strip(),
+                "description": str(node.get("description", "") or "").strip()[:1200],
+                "sku":      str(sku or "").strip()[:120],
+                "brand":    str(brand or "").strip()[:80],
                 "currency": cur or "SAR",
                 "source":   "json-ld",
             }
@@ -137,6 +149,15 @@ def _extract_from_meta(html: str) -> Dict[str, Any]:
         "price":    price,
         "name":     (meta.get("og:title") or meta.get("twitter:title") or "").strip()[:250],
         "image":    (meta.get("og:image") or meta.get("twitter:image") or "").strip(),
+        "description": (
+            meta.get("og:description") or meta.get("twitter:description")
+            or meta.get("description") or ""
+        ).strip()[:1200],
+        "sku":      (
+            meta.get("product:retailer_item_id")
+            or meta.get("product:sku") or meta.get("og:sku") or ""
+        ).strip()[:120],
+        "brand":    (meta.get("product:brand") or meta.get("og:brand") or "").strip()[:80],
         "currency": cur or "SAR",
         "source":   "og-meta",
     }
