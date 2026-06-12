@@ -407,14 +407,19 @@ def _call_openrouter(prompt, system=""):
     if not OPENROUTER_API_KEY:
         return None
 
-    # نماذج مجانية صحيحة (محدَّثة مارس 2026)
-    # نماذج مستقرة فقط — بدون النماذج التجريبية (exp)
-    # نماذج مرتبة بالأفضل للعطور: ذكاء لغوي عالي + JSON + عربي
-    FREE_MODELS = [
-        "qwen/qwen-2.5-72b-instruct:free",          # الأفضل للعربي + JSON + المنطق
-        "deepseek/deepseek-chat-v3-0324:free",        # ثاني أفضل: منطق قوي جداً
-        "meta-llama/llama-3.3-70b-instruct:free",     # ثالث: جيد للإنجليزي
-        "google/gemma-3-27b-it:free",                 # رابع: سريع + خفيف
+    # ═══ v33: نماذج ذكية مرتبة بالأفضلية ═══
+    # المعايير: دقة عربي + سرعة + تكلفة منخفضة + JSON موثوق
+    # الترتيب: الأرخص والأسرع أولاً → الأذكى كاحتياطي → المجاني آخر خط دفاع
+    SMART_MODELS = [
+        # ── المستوى 1: سريع + رخيص + ممتاز (الاستخدام اليومي) ──
+        "google/gemini-2.5-flash",                    # $0.15/M → أسرع + أذكى بالعربي + Grounding
+        "anthropic/claude-sonnet-4-20250514",         # $3/M → دقة عالية جداً + JSON ممتاز
+        # ── المستوى 2: احتياطي ذكي (إذا فشل المستوى 1) ──
+        "deepseek/deepseek-chat-v3-0324",             # $0.27/M → منطق قوي + رخيص
+        "qwen/qwen-2.5-72b-instruct",                 # $0.36/M → ممتاز بالعربي
+        # ── المستوى 3: احتياطي مجاني (آخر خط دفاع) ──
+        "qwen/qwen-2.5-72b-instruct:free",            # مجاني → بطيء لكن يعمل
+        "deepseek/deepseek-chat-v3-0324:free",         # مجاني → احتياطي أخير
     ]
 
     msgs = []
@@ -422,7 +427,7 @@ def _call_openrouter(prompt, system=""):
         msgs.append({"role": "system", "content": system})
     msgs.append({"role": "user", "content": prompt})
 
-    for model in FREE_MODELS:
+    for model in SMART_MODELS:
         try:
             r = _OPENROUTER_SESSION.post(_OR, json={
                 "model": model,
@@ -589,9 +594,10 @@ def ai_fallback_scrape(html_content: str, url: str) -> dict:
 
 def call_ai(prompt, page="general", json_mode=False):
     sys = PAGE_PROMPTS.get(page, PAGE_PROMPTS["general"])
+    # v33: OpenRouter أولاً (المزود الأساسي والمفتاح موجود) → Gemini احتياطي → Cohere أخير
     for fn, src in [
-        (lambda: _call_gemini(prompt, sys), "Gemini"),
         (lambda: _call_openrouter(prompt, sys), "OpenRouter"),
+        (lambda: _call_gemini(prompt, sys), "Gemini"),
         (lambda: _call_cohere(prompt, sys), "Cohere")
     ]:
         r = fn()

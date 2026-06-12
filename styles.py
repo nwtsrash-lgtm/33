@@ -1,11 +1,15 @@
 """
 styles.py - v31.7 — بطاقات ذكية احترافية + عرض كل المنافسين بصورهم
 """
+from functools import lru_cache
 from html import escape as _html_escape
 from textwrap import dedent
 from datetime import datetime
 
 
+# ⚡ CSS ثابت لا يتغيّر أثناء التشغيل — يُبنى مرة واحدة ويُخبَّأ.
+# آمن تماماً: get_styles بلا وسائط ويُرجع نصاً ثابتاً، فالتخبئة لا تغيّر المخرجات.
+@lru_cache(maxsize=1)
 def get_styles():
     # دمج CSS الـ v32 داخل كتلة <style> واحدة (تجنّب </style><style> المتجاورة
     # التي تجعل Markdown ينهي كتلة HTML ويُسرّب باقي الـ CSS كنص مرئي).
@@ -577,6 +581,178 @@ def miss_card(name=None, price=0, brand="", size="", ptype="", comp="", suggeste
 </div>
 </div>"""
     return dedent(inner).strip()
+
+
+def miss_card_v2(data: dict) -> str:
+    """
+    بطاقة منتج مفقود v2 — تعرض كل منافس ببطاقة فرعية داخلية + مقياس سعري بصري.
+    """
+    # ── استخراج البيانات ──
+    name = str(data.get("منتج_المنافس", "") or "")
+    brand = str(data.get("الماركة", "") or "")
+    size = str(data.get("الحجم", "") or "")
+    ptype = str(data.get("النوع", "") or "")
+    gender = str(data.get("الجنس", "") or "")
+    conf = str(data.get("مستوى_الثقة", "green") or "green")
+    priority = int(data.get("درجة_الأولوية", 50) or 50)
+    is_tester = bool(data.get("هو_تستر", False))
+    competitors = data.get("تفاصيل_المنافسين", [])
+    if not isinstance(competitors, list):
+        competitors = []
+    n_comp = len(competitors) or int(data.get("عدد_المنافسين", 1) or 1)
+    variant_type = str(data.get("نوع_متاح", "") or "")
+    variant_product = str(data.get("منتج_متاح", "") or "")
+    variant_score = _safe_float(data.get("نسبة_التشابه", 0))
+    potential_match = str(data.get("منتج_مطابق_محتمل", "") or "")
+    sim_score = _safe_float(data.get("درجة_التشابه", 0))
+    # ── ألوان الثقة ──
+    _cc = {
+        "green":  ("#00c853", "مفقود مؤكد",   "🟢"),
+        "review": ("#2979ff", "محتمل موجود",  "🔵"),
+        "yellow": ("#ffc107", "محتمل",         "🟡"),
+        "red":    ("#f44336", "مشكوك فيه",     "🔴"),
+    }
+    c_color, c_text, c_icon = _cc.get(conf, _cc["green"])
+    # ── ألوان الأولوية ──
+    p_color = ("#f44336" if priority >= 80 else "#ff9800" if priority >= 60 else
+               "#ffc107" if priority >= 40 else "#4caf50")
+    # ── نطاق السعر + مقياس بصري ──
+    prices = [float(c.get("السعر", 0) or 0) for c in competitors if float(c.get("السعر", 0) or 0) > 0]
+    mn_p = min(prices) if prices else 0
+    mx_p = max(prices) if prices else 0
+    avg_p = round(sum(prices) / len(prices), 0) if prices else 0
+    price_range = f"{mn_p:.0f}" if mn_p == mx_p else f"{mn_p:.0f} – {mx_p:.0f}"
+    _ref_max = max(mx_p * 1.3, 500)
+    pct_min = min(mn_p / _ref_max * 100, 95) if _ref_max > 0 else 10
+    pct_max = min(mx_p / _ref_max * 100, 98) if _ref_max > 0 else 50
+    pct_width = max(pct_max - pct_min, 3)
+    price_bar = f'''
+    <div style="position:relative;height:8px;background:#1a1a2e;border-radius:4px;margin:8px 0 12px;overflow:hidden;">
+        <div style="position:absolute;left:{pct_min:.0f}%;width:{pct_width:.0f}%;height:100%;
+                    background:linear-gradient(90deg,{c_color}88,{c_color});border-radius:4px;"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;font-size:10px;color:#666;margin-top:-6px;">
+        <span>0</span><span>{avg_p:.0f} ر.س متوسط</span><span>{_ref_max:.0f}</span>
+    </div>''' if len(prices) > 1 else ""
+    # ── بطاقات المنافسين الفرعية ──
+    comp_html = ""
+    for i, c in enumerate(competitors):
+        c_img = str(c.get("الصورة", "") or "")
+        c_url = str(c.get("الرابط", "") or "")
+        c_pname = str(c.get("اسم_المنتج", "") or "")
+        c_price = float(c.get("السعر", 0) or 0)
+        c_store = str(c.get("المنافس", "") or "")
+        c_size = str(c.get("الحجم", "") or "")
+        is_cheapest = (i == 0 and len(competitors) > 1)
+        img_block = (
+            f'<img src="{_html_escape(c_img, quote=True)}" '
+            f'style="width:68px;height:68px;object-fit:contain;border-radius:10px;'
+            f'background:#111827;border:1px solid {"#F59E0B55" if is_cheapest else "#1f293766"}" '
+            f'loading="lazy" referrerpolicy="no-referrer" '
+            f'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'">'
+            f'<div style="display:none;width:68px;height:68px;background:#111827;border-radius:10px;'
+            f'align-items:center;justify-content:center;color:#555;font-size:22px;">🧴</div>'
+        ) if c_img and c_img.startswith("http") else (
+            '<div style="width:68px;height:68px;background:#111827;border-radius:10px;'
+            'display:flex;align-items:center;justify-content:center;color:#555;font-size:22px;">🧴</div>'
+        )
+        link_block = (f'<a href="{_html_escape(c_url, quote=True)}" target="_blank" rel="noopener" '
+                      f'style="color:#42a5f5;font-size:10px;text-decoration:none;opacity:0.7">🔗 عرض</a>'
+                      ) if c_url and c_url.startswith("http") else ""
+        crown = "👑 " if is_cheapest else ""
+        border_c = "#F59E0B44" if is_cheapest else "#1f293766"
+        comp_html += f'''
+        <div style="flex:0 0 170px;background:linear-gradient(145deg,#0f172a,#1e293b);
+                    border-radius:14px;padding:12px 10px;border:1px solid {border_c};
+                    text-align:center;transition:transform 0.15s ease;position:relative;
+                    {"box-shadow:0 0 12px rgba(245,158,11,0.12);" if is_cheapest else ""}">
+            {"<div style='position:absolute;top:-6px;right:-6px;background:#F59E0B;color:#000;font-size:9px;font-weight:800;padding:2px 6px;border-radius:8px;'>الأرخص</div>" if is_cheapest else ""}
+            <div style="display:flex;justify-content:center;margin-bottom:8px;">{img_block}</div>
+            <div style="font-weight:700;font-size:12px;color:#60a5fa;margin-bottom:4px;
+                        white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+                 title="{_html_escape(c_store, quote=True)}">
+                {crown}🏪 {_html_escape(c_store[:20])}
+            </div>
+            <div style="font-size:10.5px;color:#94a3b8;margin-bottom:4px;height:30px;overflow:hidden;
+                        display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;line-height:1.4;"
+                 title="{_html_escape(c_pname, quote=True)}">
+                {_html_escape(c_pname[:60])}
+            </div>
+            {"<div style='font-size:9px;color:#64748b;margin-bottom:4px;'>" + _html_escape(c_size) + "</div>" if c_size and c_size.lower() not in ("nan","none","") else ""}
+            <div style="font-size:16px;font-weight:800;color:{'#F59E0B' if is_cheapest else '#66bb6a'};margin:4px 0;">
+                {c_price:.0f} <span style="font-size:10px;color:#81c784;">ر.س</span>
+            </div>
+            {link_block}
+        </div>'''
+    # ── شريط variant/similar ──
+    var_html = ""
+    if variant_type and variant_product:
+        _vc = "#F59E0B" if "تستر" in variant_type else "#10B981"
+        var_html = f'''
+        <div style="background:{_vc}0a;border:1px solid {_vc}33;border-radius:10px;
+                    padding:8px 14px;margin-top:10px;font-size:12px;color:{_vc};
+                    display:flex;align-items:center;gap:6px;">
+            ⚠️ <span style="font-weight:700;">{_html_escape(variant_type)}</span>:
+            <span style="color:#94a3b8">{_html_escape(variant_product[:50])}</span>
+            <span style="color:#64748b">({variant_score:.0f}%)</span>
+        </div>'''
+    pot_html = ""
+    if potential_match and sim_score > 50:
+        pot_html = f'''
+        <div style="background:#1e3a5f14;border:1px solid #3b82f633;border-radius:10px;
+                    padding:8px 14px;margin-top:6px;font-size:12px;color:#60a5fa;
+                    display:flex;align-items:center;gap:6px;">
+            🔍 مشابه لدينا: <span style="font-weight:700;">{_html_escape(potential_match[:50])}</span>
+            <span style="color:#64748b">({sim_score:.0f}%)</span>
+        </div>'''
+    # ── البطاقة الرئيسية ──
+    _comp_word = "منافس" if n_comp <= 2 else ("منافسين" if n_comp <= 10 else "منافس")
+    return f'''
+    <div style="background:linear-gradient(135deg,#0a0a1a 0%,#0d1117 50%,#111827 100%);
+                border-radius:18px;padding:20px;margin-bottom:14px;
+                border:1px solid {c_color}22;
+                box-shadow:0 4px 24px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.03);"
+         dir="rtl">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:6px;">
+            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+                <span style="background:{p_color}14;color:{p_color};padding:4px 12px;
+                             border-radius:20px;font-size:12px;font-weight:800;
+                             border:1px solid {p_color}33;letter-spacing:0.5px;">
+                    ⚡ {priority}
+                </span>
+                <span style="background:{c_color}14;color:{c_color};padding:4px 12px;
+                             border-radius:20px;font-size:12px;font-weight:700;
+                             border:1px solid {c_color}33;">
+                    {c_icon} {c_text}
+                </span>
+                {"<span style='background:#9333ea14;color:#c084fc;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #9333ea33;'>🧪 تستر</span>" if is_tester else ""}
+            </div>
+            <span style="color:#64748b;font-size:12px;font-weight:600;">
+                🏪 {n_comp} {_comp_word}
+            </span>
+        </div>
+        <h3 style="color:#e2e8f0;font-size:16px;margin:0 0 10px;font-weight:800;line-height:1.5;">
+            {_html_escape(name[:120])}
+        </h3>
+        <div style="display:flex;flex-wrap:wrap;gap:10px;color:#94a3b8;font-size:12px;margin-bottom:6px;">
+            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>🏷️ " + _html_escape(brand) + "</span>" if brand and brand.lower() not in ("nan","none","") else ""}
+            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>📏 " + _html_escape(size) + "</span>" if size and size.lower() not in ("nan","none","") else ""}
+            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>💧 " + _html_escape(ptype) + "</span>" if ptype and ptype.lower() not in ("nan","none","") else ""}
+            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>👤 " + _html_escape(gender) + "</span>" if gender and gender.lower() not in ("nan","none","") else ""}
+        </div>
+        <div style="color:#66bb6a;font-size:15px;font-weight:800;margin:8px 0 2px;">
+            💰 {price_range} <span style="font-size:12px;color:#81c784;font-weight:600;">ر.س</span>
+        </div>
+        {price_bar}
+        <div style="overflow-x:auto;padding:4px 0 8px;-webkit-overflow-scrolling:touch;
+                    scrollbar-width:thin;scrollbar-color:#334155 transparent;">
+            <div style="display:flex;gap:10px;min-width:min-content;padding:2px;">
+                {comp_html}
+            </div>
+        </div>
+        {var_html}
+        {pot_html}
+    </div>'''
 
 
 def lazy_img_tag(url, w=56, h=56, alt="", loading="lazy"):

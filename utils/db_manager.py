@@ -110,6 +110,20 @@ def get_db():
     conn.execute("PRAGMA journal_mode=WAL;")
     conn.execute("PRAGMA synchronous=NORMAL;")
     conn.execute("PRAGMA busy_timeout=30000;")  # 30 ثانية انتظار بدل الخطأ الفوري
+    # ⚡ ضبط أداء لكل اتصال (آمن تماماً — إعدادات اتصال محلية، لا تغيّر البيانات):
+    #   • cache_size سالب = حجم بالكيلوبايت → 64MB صفحات مخبّأة بدل ~2MB الافتراضي
+    #   • mmap_size = قراءة عبر الذاكرة (I/O أسرع للقاعدة الكبيرة 220MB)
+    #   • temp_store=MEMORY = جداول الفرز/التجميع المؤقتة في الذاكرة (GROUP BY/ORDER BY أسرع)
+    # كل واحدة داخل try مستقل: لو فشلت أي PRAGMA (نظام قديم) يبقى الاتصال صالحاً.
+    for _pragma in (
+        "PRAGMA cache_size=-65536;",
+        "PRAGMA mmap_size=268435456;",
+        "PRAGMA temp_store=MEMORY;",
+    ):
+        try:
+            conn.execute(_pragma)
+        except Exception:
+            pass
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -268,14 +282,28 @@ def ensure_indexes() -> None:
         # our_catalog
         ("our_catalog", "idx_ourcat_norm", "norm_name"),
     ]
+    # فهرس مركّب مفيد فعلاً: (competitor, price) يخدم get_all_competitor_products
+    # (WHERE competitor=? ORDER BY price DESC) — يفلتر ويُرتّب من الفهرس بلا فرز كامل.
+    # ملاحظة: (competitor, norm_name) لا يُضاف لأن قيد UNIQUE(competitor,norm_name)
+    # ينشئ أصلاً sqlite_autoindex يغطّيه تماماً — أي فهرس إضافي عليه مكرّر بلا فائدة.
+    _composite_index_specs = [
+        ("competitor_products_store", "idx_cps_comp_price", "competitor, price"),
+    ]
+    # فهارس مكرّرة أُنشئت في نسخة سابقة — تُسقَط للتنظيف (آمن وidempotent).
+    _redundant_indexes = ("idx_cps_comp_norm", "idx_compcat_comp_norm")
     try:
         conn = get_db()
         c = conn.cursor()
-        for tbl, idx, col in _index_specs:
+        for tbl, idx, col in _index_specs + _composite_index_specs:
             try:
                 c.execute(f'CREATE INDEX IF NOT EXISTS {idx} ON {tbl}({col})')
             except Exception:
                 pass  # جدول/عمود غير موجود في هذه القاعدة — تجاهل بأمان
+        for idx in _redundant_indexes:
+            try:
+                c.execute(f'DROP INDEX IF EXISTS {idx}')
+            except Exception:
+                pass
         conn.commit()
         conn.close()
     except Exception:
@@ -1250,14 +1278,132 @@ def _resolve_comp_name_price_columns(cdf):
 
 
 def upsert_comp_catalog(comp_dfs: dict):
-    """يُحدِّث كتالوج المنافسين عند كل رفع جديد — بدون تكرار"""
-    import re
+    """يُحدِّث كتالوج المنافسين عند كل رفع جديد — بدون تكرار.
+
+    ⚡ مسار سريع مُجمّع (تحميل مسبق واحد + executemany) بدل SELECT+write لكل صف.
+    ملاذ آمن: عند أي IntegrityError نادر (ترحيل عمود comp_product_key أو سباق
+    تزامن) نُلغي العمل ونعود إلى المسار الأصلي صف-بصف المُثبَت — فالنتيجة مطابقة
+    تماماً في كل الحالات الحرجة.
+    """
     conn = get_db()
     today = datetime.now().strftime("%Y-%m-%d")
-    total_new = 0
-    rows_updated = 0
     _cc_cols = _pragma_column_names(conn, "comp_catalog")
     _has_cpk = any(c.lower() == "comp_product_key" for c in _cc_cols)
+    try:
+        try:
+            res = _upsert_comp_catalog_batched(conn, comp_dfs, today, _has_cpk)
+            conn.commit()
+            return res
+        except sqlite3.IntegrityError:
+            # حالة نادرة (ترحيل/تزامن) → تراجع كامل ثم المسار الأصلي الآمن
+            try:
+                conn.rollback()
+            except Exception:
+                pass
+            res = _upsert_comp_catalog_rowwise(conn, comp_dfs, today, _has_cpk)
+            conn.commit()
+            return res
+    finally:
+        conn.close()
+
+
+def _upsert_comp_catalog_batched(conn, comp_dfs: dict, today: str, _has_cpk: bool):
+    """المسار السريع: يحمّل مفاتيح المنافسين الموجودة مرة واحدة، ثم يُراكم
+    الإدراج/التحديث وينفّذهما بـ executemany. لا commit هنا (المُوزِّع يتكفّل)."""
+    import re
+    total_new = 0
+    rows_updated = 0
+
+    # تحميل مسبق: (competitor, norm_name) → id لكل المنافسين في هذه الدفعة.
+    _competitors = list(comp_dfs.keys())
+    _existing_map: dict = {}
+    _CHUNK = 500  # تفادي حد متغيرات SQLite (999) عبر التقطيع
+    for _i in range(0, len(_competitors), _CHUNK):
+        _part = _competitors[_i:_i + _CHUNK]
+        if not _part:
+            continue
+        _ph = ",".join("?" * len(_part))
+        for _r in conn.execute(
+            f"SELECT id, competitor, norm_name FROM comp_catalog WHERE competitor IN ({_ph})",
+            _part,
+        ):
+            _existing_map[(_r["competitor"], _r["norm_name"])] = _r["id"]
+
+    _insert_params: list = []
+    _update_params: list = []
+    _pending_insert: dict = {}  # (competitor, norm) → موضع في _insert_params
+
+    for cname, cdf in comp_dfs.items():
+        name_col, price_col = _resolve_comp_name_price_columns(cdf)
+        for _, row in cdf.iterrows():
+            name = str(row.get(name_col, "")).strip()
+            if not name or len(name) < 4 or name.startswith("styles_"):
+                continue
+            norm = re.sub(r'\s+', ' ', name.lower().strip())
+            try:
+                price = float(str(row.get(price_col, 0)).replace(",", ""))
+            except Exception:
+                price = 0.0
+            _cpk = _comp_catalog_product_key(cname, norm)
+            _key = (cname, norm)
+
+            _eid = _existing_map.get(_key)
+            if _eid is not None:
+                # صف موجود في القاعدة → UPDATE مُجمّع
+                rows_updated += 1
+                if _has_cpk:
+                    _update_params.append((price, today, _cpk, _eid))
+                else:
+                    _update_params.append((price, today, _eid))
+            elif _key in _pending_insert:
+                # تكرار داخل نفس الدفعة: الأصل يجد الصف المُدرَج للتو ويُحدّث سعره
+                # فقط (الاسم/first_seen يبقيان للأول) → ندمج السعر في صف الإدراج المعلّق.
+                rows_updated += 1
+                _pi = _pending_insert[_key]
+                _old = _insert_params[_pi]
+                _insert_params[_pi] = _old[:3] + (price,) + _old[4:]
+            else:
+                total_new += 1
+                _pending_insert[_key] = len(_insert_params)
+                if _has_cpk:
+                    _insert_params.append((cname, name, norm, price, today, today, _cpk))
+                else:
+                    _insert_params.append((cname, name, norm, price, today, today))
+
+    if _insert_params:
+        if _has_cpk:
+            conn.executemany(
+                """INSERT INTO comp_catalog (competitor, product_name, norm_name, price,
+                       first_seen, last_seen, comp_product_key)
+                   VALUES (?,?,?,?,?,?,?)""",
+                _insert_params,
+            )
+        else:
+            conn.executemany(
+                """INSERT INTO comp_catalog (competitor, product_name, norm_name, price, first_seen, last_seen)
+                   VALUES (?,?,?,?,?,?)""",
+                _insert_params,
+            )
+    if _update_params:
+        if _has_cpk:
+            conn.executemany(
+                "UPDATE comp_catalog SET price=?, last_seen=?, comp_product_key=? WHERE id=?",
+                _update_params,
+            )
+        else:
+            conn.executemany(
+                "UPDATE comp_catalog SET price=?, last_seen=? WHERE id=?",
+                _update_params,
+            )
+
+    return {"new_products": total_new, "updated": rows_updated}
+
+
+def _upsert_comp_catalog_rowwise(conn, comp_dfs: dict, today: str, _has_cpk: bool):
+    """المسار الأصلي صف-بصف (ملاذ آمن). لا commit/close هنا (المُوزِّع يتكفّل)."""
+    import re
+    total_new = 0
+    rows_updated = 0
 
     for cname, cdf in comp_dfs.items():
         name_col, price_col = _resolve_comp_name_price_columns(cdf)
@@ -1326,8 +1472,6 @@ def upsert_comp_catalog(comp_dfs: dict):
                         raise
                 total_new += 1
 
-    conn.commit()
-    conn.close()
     return {"new_products": total_new, "updated": rows_updated}
 
 
@@ -2032,6 +2176,25 @@ def upsert_competitor_products(
         pass  # SQLite auto-transaction fallback
 
     try:
+        # ⚡ تحميل مسبق واحد لكل صفوف هذا المنافس (id + القيم القابلة لـ COALESCE)
+        # بدل SELECT لكل منتج. norm_name مفتاح فريد ضمن المنافس (UNIQUE(competitor,norm_name)).
+        # _existing_map[norm] = [id, image_url, product_url, brand]  (قائمة لنحدّثها داخل الدفعة)
+        _existing_map: dict = {}
+        for _er in conn.execute(
+            "SELECT id, norm_name, image_url, product_url, brand "
+            "FROM competitor_products_store WHERE competitor=?",
+            (competitor,)
+        ):
+            _existing_map[_er["norm_name"]] = [
+                _er["id"], _er["image_url"] or "", _er["product_url"] or "", _er["brand"] or ""
+            ]
+
+        # نراكم عمليات الإدراج والتحديث ثم ننفّذها دفعةً واحدة (executemany).
+        _insert_params: list = []
+        _update_params: list = []
+        # norm → موضع في _insert_params لمنتج لم يُكتب بعد (لدمج التكرار داخل نفس الدفعة).
+        _pending_insert_idx: dict = {}
+
         for p in products:
             pname = str(p.get(name_key, "") or "").strip()
             if not pname or len(pname) < 2:
@@ -2048,42 +2211,62 @@ def upsert_competitor_products(
                 continue
 
             norm = _normalize_for_store(pname)
+            _img = str(p.get("image_url", "") or "")
+            _url = str(p.get("product_url", "") or "")
+            _brand = str(p.get("brand", "") or "")
 
-            existing = conn.execute(
-                "SELECT id FROM competitor_products_store WHERE competitor=? AND norm_name=?",
-                (competitor, norm)
-            ).fetchone()
-
-            if existing:
-                conn.execute(
-                    """UPDATE competitor_products_store
-                       SET price=?, updated_at=?,
-                           image_url=COALESCE(NULLIF(?,''),(SELECT image_url FROM competitor_products_store WHERE id=?)),
-                           product_url=COALESCE(NULLIF(?,''),(SELECT product_url FROM competitor_products_store WHERE id=?)),
-                           brand=COALESCE(NULLIF(?,''),(SELECT brand FROM competitor_products_store WHERE id=?))
-                       WHERE id=?""",
-                    (price, today,
-                     str(p.get("image_url","") or ""), existing[0],
-                     str(p.get("product_url","") or ""), existing[0],
-                     str(p.get("brand","") or ""), existing[0],
-                     existing[0])
-                )
+            _ex = _existing_map.get(norm)
+            if _ex is not None:
+                # صف موجود في القاعدة (أو حُدِّث سابقاً في هذه الدفعة):
+                # COALESCE(NULLIF(جديد,''), قديم) = «احتفظ بالقديم إن كان الجديد فارغاً».
+                _eid, _e_img, _e_url, _e_brand = _ex
+                _n_img = _img if _img else _e_img
+                _n_url = _url if _url else _e_url
+                _n_brand = _brand if _brand else _e_brand
+                if _eid is not None:
+                    # صف فعلي في القاعدة → UPDATE مُجمّع (لا استعلامات فرعية: القيم محسوبة هنا).
+                    _update_params.append((price, today, _n_img, _n_url, _n_brand, _eid))
+                else:
+                    # تكرار لاسمٍ أُدرج للتو في نفس الدفعة → ادمجه في صف الإدراج المعلّق.
+                    # السلوك الأصلي: UPDATE اللاحق يحدّث السعر/الصور فقط ويُبقي الاسم/المقاس
+                    #                للمنتج الأول، فنحافظ عليها هنا تماماً.
+                    _pi = _pending_insert_idx[norm]
+                    _old = _insert_params[_pi]
+                    _insert_params[_pi] = (
+                        _old[0], _old[1], _old[2], price, _n_img, _n_url, _n_brand,
+                        _old[7], _old[8], _old[9], today
+                    )
+                # حدّث الخريطة كي يَسلسل أي تكرار لاحق فوق هذه القيم (مطابق للأصل).
+                _existing_map[norm] = [_eid, _n_img, _n_url, _n_brand]
                 updated += 1
             else:
-                conn.execute(
-                    """INSERT INTO competitor_products_store
-                       (competitor, product_name, norm_name, price, image_url,
-                        product_url, brand, size, gender, added_at, updated_at)
-                       VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
-                    (competitor, pname, norm, price,
-                     str(p.get("image_url","") or ""),
-                     str(p.get("product_url","") or ""),
-                     str(p.get("brand","") or ""),
-                     str(p.get("size","") or ""),
-                     str(p.get("gender","") or "للجنسين"),
-                     today, today)
-                )
+                _size = str(p.get("size", "") or "")
+                _gender = str(p.get("gender", "") or "للجنسين")
+                _insert_params.append((
+                    competitor, pname, norm, price, _img, _url, _brand,
+                    _size, _gender, today, today
+                ))
+                _pending_insert_idx[norm] = len(_insert_params) - 1
+                # سجّله كـ«موجود» بمعرّف None كي يُدمج أي تكرار لاحق ضمن الدفعة.
+                _existing_map[norm] = [None, _img, _url, _brand]
                 inserted += 1
+
+        # كتابة مُجمّعة: إدراج كل الجديد ثم تحديث كل القديم (صفوف منفصلة، فلا يهم الترتيب بينها).
+        if _insert_params:
+            conn.executemany(
+                """INSERT INTO competitor_products_store
+                   (competitor, product_name, norm_name, price, image_url,
+                    product_url, brand, size, gender, added_at, updated_at)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                _insert_params
+            )
+        if _update_params:
+            conn.executemany(
+                """UPDATE competitor_products_store
+                   SET price=?, updated_at=?, image_url=?, product_url=?, brand=?
+                   WHERE id=?""",
+                _update_params
+            )
 
         conn.commit()
     except Exception:

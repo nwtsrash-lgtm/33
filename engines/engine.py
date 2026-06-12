@@ -3336,21 +3336,57 @@ def find_missing_products(our_df, comp_dfs):
             _key = (normalize(_e.get("الماركة", "")), _bn)
             _cn = str(_e.get("المنافس", "") or "").strip()
             _pr_new = float(_e.get("سعر_المنافس", 0) or 0)
+            # ═══ v33: بناء كائن المنافس الكامل ═══
+            _comp_detail = {
+                "المنافس":    _cn,
+                "اسم_المنتج": str(_e.get("منتج_المنافس", "")),
+                "السعر":      _pr_new,
+                "الصورة":     str(_e.get("صورة_المنافس", "") or ""),
+                "الرابط":     str(_e.get("رابط_المنافس", "") or ""),
+                "الحجم":      str(_e.get("الحجم", "") or ""),
+                "النوع":      str(_e.get("النوع", "") or ""),
+                "المعرف":     str(_e.get("معرف_المنافس", "") or ""),
+            }
             _ex = _merged.get(_key)
             if _ex is None:
+                # ── أول ظهور: أنشئ القوائم ──
                 _e["المنافسون"] = [_cn] if _cn else []
+                _e["تفاصيل_المنافسين"] = [_comp_detail]
                 _merged[_key] = _e
                 continue
-            # احفظ اسم المنافس الجديد
+            # ── منتج مكرر من منافس آخر: ألحق البيانات الكاملة ──
             if _cn and _cn not in _ex["المنافسون"]:
                 _ex["المنافسون"].append(_cn)
-            # أبقِ السجل صاحب أقل سعر (مع الحفاظ على قائمة المنافسين المُجمَّعة)
+            # إلحاق السجل الكامل (منع التكرار بالاسم)
+            _existing_stores = {d.get("المنافس", "") for d in _ex.get("تفاصيل_المنافسين", [])}
+            if _cn not in _existing_stores:
+                _ex.setdefault("تفاصيل_المنافسين", []).append(_comp_detail)
+            # ── إبقاء السجل ذو السعر الأرخص كممثل (توافق خلفي) ──
             _pr_old = float(_ex.get("سعر_المنافس", 0) or 0)
             if _pr_new > 0 and (_pr_old <= 0 or _pr_new < _pr_old):
-                _e["المنافسون"] = _ex["المنافسون"]
+                _saved_details = _ex.get("تفاصيل_المنافسين", [])
+                _saved_names = _ex.get("المنافسون", [])
+                _e["تفاصيل_المنافسين"] = _saved_details
+                _e["المنافسون"] = _saved_names
                 _merged[_key] = _e
         missing = list(_merged.values())
-        # حوّل قائمة المنافسين إلى نص للعرض
+        # ── ترتيب تفاصيل المنافسين تصاعدياً بالسعر + حساب العدد ──
+        for _e in missing:
+            _details = _e.get("تفاصيل_المنافسين", [])
+            if isinstance(_details, list) and len(_details) > 1:
+                _details.sort(key=lambda x: float(x.get("السعر", 0) or 999999))
+            _e["عدد_المنافسين"] = len(_details) if isinstance(_details, list) else 1
+            # ── حساب نطاق الأسعار للعرض السريع ──
+            _valid_prices = [float(d.get("السعر", 0) or 0) for d in _details if float(d.get("السعر", 0) or 0) > 0] if isinstance(_details, list) else []
+            if _valid_prices:
+                _e["أقل_سعر"] = min(_valid_prices)
+                _e["أعلى_سعر"] = max(_valid_prices)
+                _e["متوسط_السعر"] = round(sum(_valid_prices) / len(_valid_prices), 1)
+            else:
+                _e["أقل_سعر"] = float(_e.get("سعر_المنافس", 0) or 0)
+                _e["أعلى_سعر"] = _e["أقل_سعر"]
+                _e["متوسط_السعر"] = _e["أقل_سعر"]
+        # ── تحويل قائمة الأسماء إلى نص (التوافق الخلفي) ──
         for _e in missing:
             _lst = _e.get("المنافسون", [])
             _e["المنافسون"] = "، ".join([x for x in _lst if x]) if isinstance(_lst, list) else str(_lst or "")
@@ -3484,6 +3520,78 @@ def prepare_missing_for_upload(missing_df, margin_pct=15):
         })
     
     return pd.DataFrame(rows) if rows else pd.DataFrame()
+
+
+# ═══════════════════════════════════════════════════════
+#  محرك أولويات المفقودات الذكي v33
+# ═══════════════════════════════════════════════════════
+def calculate_missing_priority(missing_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    يحسب درجة أولوية (0-100) لكل منتج مفقود.
+    الأولوية = (عدد_المنافسين × 40%) + (مستوى_الثقة × 25%)
+             + (جاذبية_السعر × 20%) + (اكتمال_البيانات × 15%)
+    """
+    if not isinstance(missing_df, pd.DataFrame) or missing_df.empty:
+        return missing_df
+    df = missing_df.copy()
+    # ═══ 1. عدد المنافسين (40%) ═══
+    def _count(x):
+        if isinstance(x, list): return len(x)
+        if isinstance(x, str) and x.strip().startswith("["):
+            try: return len(__import__("json").loads(x))
+            except Exception: return 1
+        return 1
+    if "تفاصيل_المنافسين" in df.columns:
+        _cc = df["تفاصيل_المنافسين"].apply(_count)
+    elif "عدد_المنافسين" in df.columns:
+        _cc = pd.to_numeric(df["عدد_المنافسين"], errors="coerce").fillna(1)
+    elif "المنافسون" in df.columns:
+        _cc = df["المنافسون"].apply(lambda x: len(str(x).split("،")) if x and str(x).strip() else 1)
+    else:
+        _cc = pd.Series(1, index=df.index)
+    _max_c = max(_cc.max(), 1)
+    s_comp = (_cc / _max_c) * 40
+    # ═══ 2. مستوى الثقة (25%) ═══
+    _cmap = {"green": 25, "review": 15, "yellow": 8, "red": 2}
+    if "مستوى_الثقة" in df.columns:
+        s_conf = df["مستوى_الثقة"].map(_cmap).fillna(8)
+    else:
+        s_conf = pd.Series(25, index=df.index)  # افتراضي: مؤكد
+    # ═══ 3. جاذبية السعر (20%) ═══
+    _pc = None
+    for c in ("سعر_المنافس", "أقل_سعر", "السعر"):
+        if c in df.columns:
+            _pc = c
+            break
+    if _pc:
+        _prices = pd.to_numeric(df[_pc], errors="coerce").fillna(0)
+        s_price = _prices.apply(lambda p: (
+            20 if 60 <= p <= 500 else
+            14 if 30 <= p <= 800 else
+            8 if p > 0 else 0
+        ))
+    else:
+        s_price = pd.Series(10, index=df.index)
+    # ═══ 4. اكتمال البيانات (15%) ═══
+    def _data_score(row):
+        s = 0
+        if str(row.get("الماركة", "") or "").strip(): s += 4
+        if str(row.get("الحجم", "") or "").strip(): s += 3
+        if str(row.get("صورة_المنافس", "") or "").strip().startswith("http"): s += 4
+        if str(row.get("النوع", "") or "").strip(): s += 2
+        if str(row.get("الجنس", "") or "").strip(): s += 2
+        return min(s, 15)
+    s_data = df.apply(_data_score, axis=1)
+    # ═══ المجموع ═══
+    df["درجة_الأولوية"] = (s_comp + s_conf + s_price + s_data).round(0).astype(int).clip(0, 100)
+    df["مستوى_الأولوية"] = df["درجة_الأولوية"].apply(lambda s: (
+        "🔴 حرج"     if s >= 80 else
+        "🟠 عالي"    if s >= 60 else
+        "🟡 متوسط"   if s >= 40 else
+        "🟢 منخفض"
+    ))
+    return df
+
 
 def export_excel(df, sheet_name="النتائج"):
     from openpyxl.styles import PatternFill, Font, Alignment

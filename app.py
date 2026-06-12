@@ -90,7 +90,7 @@ SECTIONS = [
     "🕷️ كشط المنافسين",
     "⚙️ الإعدادات",
 ]
-from styles import (get_styles, vs_card, comp_strip, miss_card,
+from styles import (get_styles, vs_card, comp_strip, miss_card, miss_card_v2,
                     get_sidebar_toggle_js, lazy_img_tag, linked_product_title,
                     render_kpi_row, render_active_filter_chips_html,
                     render_changes_table, render_excluded_table,
@@ -403,9 +403,11 @@ if st.session_state.get("our_df") is None and _os_cat.path.exists(_OUR_CATALOG_P
     except Exception:
         pass
 
-# تحميل المنتجات المخفية من قاعدة البيانات عند كل تشغيل
-_db_hidden = get_hidden_product_keys()
+# تحميل المنتجات المخفية من قاعدة البيانات — مرة واحدة فقط عند بدء الجلسة.
+# ⚡ نُقل استعلام DB داخل الحارس: _db_hidden كان يُستعلَم كل rerun ثم يُهمَل
+# (لا يُستخدم خارج هذه الكتلة)، فالنقل يحفظ السلوك تماماً ويزيل استعلاماً لكل تفاعل.
 if "_hidden_hydrated" not in st.session_state:
+    _db_hidden = get_hidden_product_keys()
     st.session_state.hidden_products = st.session_state.hidden_products | _db_hidden
     st.session_state["_hidden_hydrated"] = True
 
@@ -818,6 +820,68 @@ def _miss_toks(bare: str) -> list:
     return [t for t in bare.split() if len(t) >= 4][:4]
 
 
+# ═══ v33: حماية التوافق الخلفي للمفقودات ═══
+def _ensure_competitor_details(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    يضمن وجود عمود تفاصيل_المنافسين — يبنيه من الأعمدة القديمة إذا لم يكن موجوداً.
+    يُستدعى مرة واحدة بعد كل تحميل لـ missing_df.
+    """
+    if not isinstance(df, pd.DataFrame) or df.empty:
+        return df
+    # ── حالة 1: العمود موجود لكن كنص JSON (تحميل من cache/DB) ──
+    if "تفاصيل_المنافسين" in df.columns:
+        _nn = df["تفاصيل_المنافسين"].dropna()
+        _sample = _nn.iloc[0] if not _nn.empty else None
+        if isinstance(_sample, str):
+            import json as _json_compat
+            def _parse_details(x):
+                if isinstance(x, list):
+                    return x
+                if isinstance(x, str) and x.strip().startswith("["):
+                    try:
+                        return _json_compat.loads(x)
+                    except Exception:
+                        return []
+                return []
+            df["تفاصيل_المنافسين"] = df["تفاصيل_المنافسين"].apply(_parse_details)
+        # حساب العدد إذا مفقود
+        if "عدد_المنافسين" not in df.columns:
+            df["عدد_المنافسين"] = df["تفاصيل_المنافسين"].apply(
+                lambda x: len(x) if isinstance(x, list) else 1
+            )
+        return df
+    # ── حالة 2: عمود غير موجود (بيانات قديمة) → بناء من الأعمدة الموجودة ──
+    def _build_from_old(row):
+        base = [{
+            "المنافس":    str(row.get("المنافس", "") or ""),
+            "اسم_المنتج": str(row.get("منتج_المنافس", "") or ""),
+            "السعر":      float(row.get("سعر_المنافس", 0) or 0),
+            "الصورة":     str(row.get("صورة_المنافس", "") or ""),
+            "الرابط":     str(row.get("رابط_المنافس", "") or ""),
+            "الحجم":      str(row.get("الحجم", "") or ""),
+            "النوع":      str(row.get("النوع", "") or ""),
+            "المعرف":     str(row.get("معرف_المنافس", "") or ""),
+        }]
+        return base
+    df["تفاصيل_المنافسين"] = df.apply(_build_from_old, axis=1)
+    df["عدد_المنافسين"] = 1
+    # حساب أعمدة السعر المساعدة
+    if "أقل_سعر" not in df.columns:
+        df["أقل_سعر"] = pd.to_numeric(df.get("سعر_المنافس", 0), errors="coerce").fillna(0)
+        df["أعلى_سعر"] = df["أقل_سعر"]
+        df["متوسط_السعر"] = df["أقل_سعر"]
+    return df
+
+
+def _clean_for_export(df: pd.DataFrame) -> pd.DataFrame:
+    """يحذف الأعمدة غير القابلة للتسلسل قبل التصدير."""
+    if not isinstance(df, pd.DataFrame):
+        return df
+    _drop = ["تفاصيل_المنافسين", "درجة_الأولوية", "مستوى_الأولوية",
+             "أقل_سعر", "أعلى_سعر", "متوسط_السعر", "عدد_المنافسين"]
+    return df.drop(columns=[c for c in _drop if c in df.columns], errors="ignore")
+
+
 @st.cache_data(show_spinner=False, ttl=1800)
 def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     """يحسب المنتجات المفقودة الحقيقية من المخزن الدائم (مستقل عن الوظيفة الهشّة).
@@ -1050,7 +1114,14 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
               f"مفقود_مؤكد={_n_green} إجمالي_معروض={len(rows)}")
     except Exception:
         pass
-    return pd.DataFrame(rows)
+    _df_out = pd.DataFrame(rows)
+    # v33: تحويل list[dict] لـ JSON string للتخزين المؤقت (cache-safe)
+    import json as _json_cache
+    if "تفاصيل_المنافسين" in _df_out.columns:
+        _df_out["تفاصيل_المنافسين"] = _df_out["تفاصيل_المنافسين"].apply(
+            lambda x: _json_cache.dumps(x, ensure_ascii=False) if isinstance(x, list) else "[]"
+        )
+    return _df_out
 
 
 def verify_review_bucket_with_ai(missing_df, batch_size: int = 8, max_items: int = None):
@@ -2521,7 +2592,8 @@ def render_pro_table(
     st.caption(f"عرض {len(filtered)} من {len(df)} منتج — {datetime.now().strftime('%H:%M:%S')}")
 
     # ── v33: تنقل موحّد بأسهم وأرقام صفحات ──
-    start_idx, end_idx, _pg_num = render_pagination(len(filtered), 25, f"{prefix}_pro")
+    # ⚡ 15 بدل 25/صفحة: كل منتج ~26-33 ودجت → تقليل ~40% من عناصر الصفحة = رسم أسرع
+    start_idx, end_idx, _pg_num = render_pagination(len(filtered), 15, f"{prefix}_pro")
     page_df = filtered.iloc[start_idx:end_idx]
 
 
@@ -4738,7 +4810,7 @@ elif page == "🔍 منتجات مفقودة":
             _job_miss = pd.DataFrame((_last or {}).get("missing", []) or [])
             _job_status_m = str((_last or {}).get("status", ""))
             if not _job_miss.empty:
-                _res_now["missing"] = _job_miss
+                _res_now["missing"] = _ensure_competitor_details(_job_miss)  # v33
                 st.session_state.results = _res_now
                 st.info(
                     f"♻️ استُعيدت **{len(_job_miss):,}** منتجاً مفقوداً من آخر تحليل محفوظ "
@@ -4762,7 +4834,7 @@ elif page == "🔍 منتجات مفقودة":
                     # ضع العلَم دائماً — حتى لو فارغة — كي لا نُعيد الحساب الثقيل كل rerun
                     st.session_state[_auto_key] = True
                     if isinstance(_computed, pd.DataFrame) and not _computed.empty:
-                        _res_now["missing"] = _computed
+                        _res_now["missing"] = _ensure_competitor_details(_computed)  # v33
                         st.session_state.results = _res_now
                         st.rerun()  # أعد الرسم ليعرضها قسم العرض أدناه مباشرة
                     else:
@@ -4785,6 +4857,21 @@ elif page == "🔍 منتجات مفقودة":
 
     if st.session_state.results and "missing" in st.session_state.results:
         df_missing = st.session_state.results["missing"]
+        # ═══ v33: ضمان وجود تفاصيل المنافسين ═══
+        if isinstance(df_missing, pd.DataFrame) and not df_missing.empty:
+            if "تفاصيل_المنافسين" not in df_missing.columns:
+                df_missing = _ensure_competitor_details(df_missing)
+                st.session_state.results["missing"] = df_missing
+        # ═══ v33: حساب الأولوية ═══
+        if isinstance(df_missing, pd.DataFrame) and not df_missing.empty:
+            if "درجة_الأولوية" not in df_missing.columns:
+                try:
+                    from engines.engine import calculate_missing_priority
+                    df_missing = calculate_missing_priority(df_missing)
+                    st.session_state.results["missing"] = df_missing
+                except Exception as _prio_err:
+                    import logging as _prio_log
+                    _prio_log.warning("v33 priority calc failed: %s", _prio_err)
         df_missing_to_show = df_missing.copy() if isinstance(df_missing, pd.DataFrame) else pd.DataFrame()
         _missing_total = len(df_missing) if isinstance(df_missing, pd.DataFrame) else 0  # FIX: Missing Products Display Recovery
         # FIX: Safe Filtering for Missing Products to prevent KeyError
@@ -4863,6 +4950,22 @@ elif page == "🔍 منتجات مفقودة":
                             st.session_state["_action_toast"] = ("error", f"تعذّر تحقّق AI: {_ai_err}")
                     st.rerun()
 
+            # ═══ v33: مقاييس الأولوية ═══
+            _critical_count = 0
+            if "درجة_الأولوية" in df.columns:
+                _critical_count = int((pd.to_numeric(df["درجة_الأولوية"], errors="coerce").fillna(0) >= 80).sum())
+            _multi_comp = 0
+            if "تفاصيل_المنافسين" in df.columns:
+                _multi_comp = int(df["تفاصيل_المنافسين"].apply(
+                    lambda x: len(x) if isinstance(x, list) else 1
+                ).ge(3).sum())
+            elif "عدد_المنافسين" in df.columns:
+                _multi_comp = int((pd.to_numeric(df["عدد_المنافسين"], errors="coerce").fillna(1) >= 3).sum())
+            _pk1, _pk2, _pk3 = st.columns(3)
+            _pk1.metric("🔴 أولوية حرجة", f"{_critical_count:,}")
+            _pk2.metric("🏪 عند 3+ منافسين", f"{_multi_comp:,}")
+            _pk3.metric("📦 إجمالي", f"{total_miss:,}")
+
             # ── v31.11c: تصدير سريع للمنتجات المؤكدة الجاهزة للرفع ──
             if _gc > 0:
                 st.markdown("---")
@@ -4875,7 +4978,7 @@ elif page == "🔍 منتجات مفقودة":
                 with _exp_c2:
                     if st.button("📦 تجهيز للرفع", key="miss_prep_upload", type="primary"):
                         with st.spinner("جاري تجهيز المنتجات..."):
-                            _upload_df = prepare_missing_for_upload(df, margin_pct=_margin)
+                            _upload_df = prepare_missing_for_upload(_clean_for_export(df), margin_pct=_margin)
                             st.session_state["_miss_upload_ready"] = _upload_df
                 with _exp_c3:
                     st.caption(f"🟢 {_gc} منتج مؤكد جاهز")
@@ -4936,6 +5039,14 @@ elif page == "🔍 منتجات مفقودة":
             opts = get_filter_options(df)
             st.markdown("---")
 
+            # ═══ v33: شريط الترتيب ═══
+            st.radio(
+                "🔀 ترتيب حسب",
+                ["⚡ الأولوية", "🏪 عدد المنافسين", "💰 السعر (الأعلى)", "💰 السعر (الأقل)", "🔤 الاسم"],
+                horizontal=True,
+                key="miss_sort_mode_v33",
+            )
+
             # صف 1: مستوى الثقة (أزرار ملوّنة) — خارج الـ form لأنها تعتمد rerun فوري
             _conf_options = ["الكل", "🟢 مفقود مؤكد", "🔵 محتمل موجود", "🟡 محتمل", "🔴 مشكوك"]
             _conf_cols = st.columns(len(_conf_options))
@@ -4968,6 +5079,20 @@ elif page == "🔍 منتجات مفقودة":
                 with _f6:
                     _cat_opts = ["الكل", "🌸 عطور", "🧴 عناية", "💄 تجميل", "📦 أخرى"]
                     cat_f = st.selectbox("📋 التصنيف", _cat_opts, key="miss_cat")
+
+                # v33: فلتر عدد المنافسين
+                _max_comps = 10
+                if "تفاصيل_المنافسين" in df.columns:
+                    _max_comps = max(int(df["تفاصيل_المنافسين"].apply(
+                        lambda x: len(x) if isinstance(x, list) else 1
+                    ).max()), 2)
+                elif "عدد_المنافسين" in df.columns:
+                    _max_comps = max(int(pd.to_numeric(df["عدد_المنافسين"], errors="coerce").max() or 2), 2)
+                _min_comp = st.slider(
+                    "🏪 الحد الأدنى لعدد المنافسين",
+                    min_value=1, max_value=min(_max_comps, 15), value=1,
+                    key="miss_min_comp_v33",
+                )
 
                 # صف 3: نطاق السعر (slider)
                 if _price_col:
@@ -5026,13 +5151,52 @@ elif page == "🔍 منتجات مفقودة":
                 _f_prices = pd.to_numeric(filtered[_price_col], errors="coerce").fillna(0)
                 filtered = filtered[(_f_prices >= _p_range[0]) & (_f_prices <= _p_range[1])]
 
-            # ── ترتيب ذكي: الأعلى ربحية × الأكثر ثقة ─────────────────
-            if "مستوى_الثقة" in filtered.columns:
-                # المفقود المؤكد أولاً، ثم المراجعة، ثم البقية
-                _conf_order = {"green": 0, "review": 1, "yellow": 2, "red": 3}
-                filtered = filtered.assign(
-                    _conf_sort=filtered["مستوى_الثقة"].map(_conf_order).fillna(4)
-                ).sort_values("_conf_sort").drop(columns=["_conf_sort"])
+            # v33: فلتر عدد المنافسين
+            if _min_comp > 1:
+                if "تفاصيل_المنافسين" in filtered.columns:
+                    filtered = filtered[filtered["تفاصيل_المنافسين"].apply(
+                        lambda x: len(x) if isinstance(x, list) else 1
+                    ) >= _min_comp]
+                elif "عدد_المنافسين" in filtered.columns:
+                    filtered = filtered[pd.to_numeric(filtered["عدد_المنافسين"], errors="coerce").fillna(1) >= _min_comp]
+
+            # ═══ v33: ترتيب متقدم ─────────────────
+            _sm = st.session_state.get("miss_sort_mode_v33", "⚡ الأولوية")
+            if _sm == "⚡ الأولوية" and "درجة_الأولوية" in filtered.columns:
+                filtered = filtered.sort_values("درجة_الأولوية", ascending=False)
+            elif _sm == "🏪 عدد المنافسين":
+                if "تفاصيل_المنافسين" in filtered.columns:
+                    filtered = filtered.assign(
+                        _nc=filtered["تفاصيل_المنافسين"].apply(lambda x: len(x) if isinstance(x, list) else 1)
+                    ).sort_values("_nc", ascending=False).drop(columns=["_nc"])
+                elif "عدد_المنافسين" in filtered.columns:
+                    filtered = filtered.sort_values("عدد_المنافسين", ascending=False)
+            elif _sm == "💰 السعر (الأعلى)":
+                _pc2 = next((c for c in ["سعر_المنافس", "السعر"] if c in filtered.columns), None)
+                if _pc2:
+                    filtered = filtered.assign(
+                        _sp=pd.to_numeric(filtered[_pc2], errors="coerce").fillna(0)
+                    ).sort_values("_sp", ascending=False).drop(columns=["_sp"])
+            elif _sm == "💰 السعر (الأقل)":
+                _pc2 = next((c for c in ["سعر_المنافس", "السعر"] if c in filtered.columns), None)
+                if _pc2:
+                    filtered = filtered.assign(
+                        _sp=pd.to_numeric(filtered[_pc2], errors="coerce").fillna(0)
+                    ).sort_values("_sp", ascending=True).drop(columns=["_sp"])
+            elif _sm == "🔤 الاسم":
+                if "منتج_المنافس" in filtered.columns:
+                    filtered = filtered.sort_values("منتج_المنافس")
+            else:
+                # ترتيب افتراضي: ثقة ثم أولوية (السلوك القديم)
+                if "مستوى_الثقة" in filtered.columns:
+                    _conf_order = {"green": 0, "review": 1, "yellow": 2, "red": 3}
+                    filtered = filtered.assign(
+                        _co=filtered["مستوى_الثقة"].map(_conf_order).fillna(4)
+                    )
+                    if "درجة_الأولوية" in filtered.columns:
+                        filtered = filtered.sort_values(["_co", "درجة_الأولوية"], ascending=[True, False]).drop(columns=["_co"])
+                    else:
+                        filtered = filtered.sort_values("_co").drop(columns=["_co"])
 
             # ── شريط شارات الفلاتر الفعّالة ──
             _miss_chips = render_active_filter_chips_html({
@@ -5091,7 +5255,7 @@ elif page == "🔍 منتجات مفقودة":
                                      "(اسم + ماركة + تصنيف + حجم + صورة + سعر مقترح + وصف)…"):
                         try:
                             _xb_salla = export_to_salla_shamel(
-                                _export_src, st.session_state.get("analysis_df"),
+                                _clean_for_export(_export_src), st.session_state.get("analysis_df"),
                                 verify_missing=False,
                                 export_mode=st.session_state.get("salla_export_mode", "safe"),
                             )
@@ -5189,7 +5353,7 @@ elif page == "🔍 منتجات مفقودة":
                 with _dl1:
                     try:
                         _csv_b, _csv_c, _ = export_to_salla_shamel_csv(
-                            _ready_g, _our_df_ref, verify_missing=True, export_mode=_export_mode
+                            _clean_for_export(_ready_g), _our_df_ref, verify_missing=True, export_mode=_export_mode
                         )
                         st.download_button(
                             f"📥 CSV سلة ({_csv_c} منتج)",
@@ -5203,7 +5367,7 @@ elif page == "🔍 منتجات مفقودة":
                 with _dl2:
                     try:
                         _xlsx_b = export_to_salla_shamel(
-                            _ready_g, _our_df_ref, verify_missing=True, export_mode=_export_mode
+                            _clean_for_export(_ready_g), _our_df_ref, verify_missing=True, export_mode=_export_mode
                         )
                         st.download_button(
                             "📥 XLSX Excel",
@@ -5529,7 +5693,7 @@ elif page == "🔍 منتجات مفقودة":
                     # ── زر CSV (مطابق لقالب سلة الرسمي) ─────────────────
                     try:
                         _csv_bytes, _csv_count, _ = export_to_salla_shamel_csv(
-                            export_df, _our_df_ref, verify_missing=False, export_mode=_export_mode  # FIX: Salla Export Mode Toggle
+                            _clean_for_export(export_df), _our_df_ref, verify_missing=False, export_mode=_export_mode  # FIX: Salla Export Mode Toggle
                         )
                         st.download_button(
                             "📥 2. تحميل ملف سلة CSV (مطابق للقالب الرسمي)",
@@ -5546,7 +5710,7 @@ elif page == "🔍 منتجات مفقودة":
                     # ── زر XLSX (احتياطي) ────────────────────────────────
                     try:
                         _xlsx_bytes = export_to_salla_shamel(
-                            export_df, _our_df_ref, verify_missing=False, export_mode=_export_mode  # FIX: Salla Export Mode Toggle
+                            _clean_for_export(export_df), _our_df_ref, verify_missing=False, export_mode=_export_mode  # FIX: Salla Export Mode Toggle
                         )
                         st.download_button(
                             "📥 تحميل ملف سلة XLSX (Excel)",
@@ -5689,7 +5853,7 @@ elif page == "🔍 منتجات مفقودة":
                     for issue in issues:
                         st.warning(issue)
                 else:
-                    products = export_to_make_format(_to_send, "missing")
+                    products = export_to_make_format(_clean_for_export(_to_send), "missing")
                     # إضافة مستوى الثقة لكل منتج
                     for _ip, _pr_row in enumerate(products):
                         if _ip < len(_to_send):
@@ -5818,7 +5982,8 @@ elif page == "🔍 منتجات مفقودة":
                     f"(الإجمالي والإرسال يبقيان على {len(filtered):,} منتج)"
                 )
             # ── v33: تنقل موحّد بأسهم وأرقام صفحات ──
-            _ms, _me, _mp = render_pagination(len(_display_df), 20, "miss")
+            # ⚡ 12 بدل 20/صفحة: بطاقات المفقودات ثقيلة (HTML+صور) → صفحة أخف وأسرع
+            _ms, _me, _mp = render_pagination(len(_display_df), 12, "miss")
             page_df = _display_df.iloc[_ms:_me]
 
             for idx, row in page_df.iterrows():
@@ -5847,9 +6012,9 @@ elif page == "🔍 منتجات مفقودة":
                 size            = str(row.get("الحجم", "") or "").strip()
                 # Fallback: استخراج الحجم من اسم المنتج إن لم يوجد
                 if not size or size.lower() in ("nan", "none"):
-                    import re as _re_size
+                    # re مستورد على مستوى الوحدة (سطر 61) — لا داعي لاستيراد داخل الحلقة
                     _name_for_size = str(row.get("منتج_المنافس", "") or row.get("المنتج", "") or name)
-                    _m_size = _re_size.search(r"(\d{1,4})\s*(?:مل|ملي|ml|ML|mL)\b", _name_for_size)
+                    _m_size = re.search(r"(\d{1,4})\s*(?:مل|ملي|ml|ML|mL)\b", _name_for_size)
                     size = f"{_m_size.group(1)} مل" if _m_size else ""
                 ptype           = str(row.get("النوع", ""))
                 _comp_show = _humanize_competitor_upload(comp)
@@ -5936,28 +6101,42 @@ elif page == "🔍 منتجات مفقودة":
                             name[:40],
                         )
                         st.markdown(images_html, unsafe_allow_html=True)
-                    # v32: بطاقة miss-card-v32 (dict) — تدمج الأجمل بالأغنى:
-                    # تعرض الإشارات (تستر/النوع المتاح/التحذيرات/الثقة) بالتصميم الجديد.
-                    st.markdown(miss_card({
-                        "منتج_المنافس": _title_display or name,
-                        "المنافس":      _comp_show,
-                        "سعر_المنافس":  price,
-                        "صورة_المنافس": _miss_img,
-                        "رابط_المنافس": _miss_comp_url,
-                        "الماركة":      brand,
-                        "الحجم":        size,
-                        "النوع":        ptype,
-                        "السعر_المقترح": suggested_price,
-                        "معرف_المنافس": _miss_pid,
-                        "مستوى_الثقة":  conf_level,
-                        "هو_تستر":      is_tester_flag,
-                        "نوع_متاح":     variant_label,
-                        "منتج_متاح":    variant_product,
-                        "نسبة_التشابه": variant_score,
-                        "ملاحظة":       note if _is_similar else "",
-                        "منتج_مطابق_محتمل": str(row.get("منتج_مطابق_محتمل", "") or ""),
-                        "درجة_التشابه": conf_score,
-                        "المنافسون":    str(row.get("المنافسون", "") or ""),
+                    # v33: بطاقة محسّنة مع بطاقات فرعية لكل منافس
+                    _comp_details_raw = row.get("تفاصيل_المنافسين", [])
+                    if isinstance(_comp_details_raw, str):
+                        try:
+                            import json as _j33
+                            _comp_details_raw = _j33.loads(_comp_details_raw)
+                        except Exception:
+                            _comp_details_raw = []
+                    if not isinstance(_comp_details_raw, list) or not _comp_details_raw:
+                        # fallback: بناء بطاقة واحدة من البيانات المتوفرة
+                        _comp_details_raw = [{
+                            "المنافس": _comp_show,
+                            "اسم_المنتج": _title_display or name,
+                            "السعر": float(price) if price else 0.0,
+                            "الصورة": _miss_img,
+                            "الرابط": _miss_comp_url,
+                            "الحجم": size,
+                            "النوع": ptype,
+                            "المعرف": _miss_pid,
+                        }]
+                    st.markdown(miss_card_v2({
+                        "منتج_المنافس":       _title_display or name,
+                        "الماركة":             brand,
+                        "الحجم":               size,
+                        "النوع":               ptype,
+                        "الجنس":               str(row.get("الجنس", "") or ""),
+                        "مستوى_الثقة":         conf_level,
+                        "درجة_الأولوية":       int(row.get("درجة_الأولوية", 50) or 50),
+                        "هو_تستر":             is_tester_flag,
+                        "تفاصيل_المنافسين":    _comp_details_raw,
+                        "عدد_المنافسين":       int(row.get("عدد_المنافسين", len(_comp_details_raw)) or 1),
+                        "نوع_متاح":            variant_label,
+                        "منتج_متاح":           variant_product,
+                        "نسبة_التشابه":        variant_score,
+                        "منتج_مطابق_محتمل":    str(row.get("منتج_مطابق_محتمل", "") or ""),
+                        "درجة_التشابه":        conf_score,
                     }), unsafe_allow_html=True)
 
                 # ── إجراءات مختصرة على البطاقة ───────────────────────────
@@ -6098,7 +6277,8 @@ elif page == "⚪ المستبعدة":
         _filtered_exc = _exc_view if _sel_reason == "الكل" else _exc_view[_reason == _sel_reason]
         st.caption(f"عرض {len(_filtered_exc):,} من {len(_exc_view):,} منتج مستبعد")
 
-        _es, _ee, _ep = render_pagination(len(_filtered_exc), 50, "exc")
+        # ⚡ 25 بدل 50/صفحة: قسم المستبعدة كان يرسم 50 صفاً دفعة واحدة
+        _es, _ee, _ep = render_pagination(len(_filtered_exc), 25, "exc")
         render_excluded_table(_filtered_exc.iloc[_es:_ee].to_dict("records"))
 
         # تصدير CSV للمستبعدة (مع السبب)
