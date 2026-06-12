@@ -1535,17 +1535,17 @@ if st.session_state.results is None and not st.session_state.job_running:
         try:
             # عدد الوظائف في DB
             _job_count = conn.execute("SELECT COUNT(*) FROM job_progress").fetchone()[0]
-            _done_count = conn.execute("SELECT COUNT(*) FROM job_progress WHERE status='done'").fetchone()[0]
+            _done_count = conn.execute("SELECT COUNT(*) FROM job_progress WHERE status IN ('done','stopped')").fetchone()[0]
             _rlog.info("🔄 [RESTORE] إجمالي الوظائف: %d — المكتملة: %d", _job_count, _done_count)
 
             _done_row = conn.execute(
-                "SELECT job_id FROM job_progress WHERE status='done' "
+                "SELECT job_id FROM job_progress WHERE status IN ('done','stopped') "
                 "AND results_json != '[]' AND missing_json IS NOT NULL AND missing_json != '[]' "
                 "ORDER BY id DESC LIMIT 1"
             ).fetchone()
             if not _done_row:
                 _done_row = conn.execute(
-                    "SELECT job_id FROM job_progress WHERE status='done' AND results_json != '[]' "
+                    "SELECT job_id FROM job_progress WHERE status IN ('done','stopped') AND results_json != '[]' "
                     "ORDER BY id DESC LIMIT 1"
                 ).fetchone()
             _rlog.info("🔄 [RESTORE] وظيفة مكتملة: %s", _done_row["job_id"] if _done_row else "لا يوجد!")
@@ -1560,7 +1560,7 @@ if st.session_state.results is None and not st.session_state.job_running:
         except Exception as _fb_err:
             _rlog.error("❌ [RESTORE] فشل fallback أيضاً: %s", _fb_err)
 
-    if _auto_job and _auto_job.get("status") == "done" and _auto_job.get("results"):
+    if _auto_job and _auto_job.get("status") in ("done", "stopped") and _auto_job.get("results"):
         _rlog.info("✅ [RESTORE] وُجدت وظيفة مكتملة — job_id=%s, results_count=%d",
                     _auto_job.get("job_id", "?"), len(_auto_job.get("results", [])))
         try:
