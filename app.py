@@ -882,6 +882,44 @@ def _clean_for_export(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=[c for c in _drop if c in df.columns], errors="ignore")
 
 
+# ── كاش قرص للمفقودات: يبقى عبر الجلسات وإعادة تشغيل الحاوية (Railway) ──
+# المفقودات تُحسب مرة (فحص ثقيل على عشرات الآلاف) ثم تُحفظ على القرص، فتظهر فوراً
+# عند كل دخول للقسم بلا إعادة حساب — تماماً كباقي الأقسام. زر «إعادة حساب» يمسحها.
+def _missing_cache_path() -> str:
+    import os as _o
+    return _o.path.join(_o.environ.get("DATA_DIR", "data"), "missing_cache.pkl")
+
+
+def _load_missing_cache():
+    import os as _o
+    _p = _missing_cache_path()
+    if not _o.path.exists(_p):
+        return None
+    try:
+        _df = pd.read_pickle(_p)
+        return _df if isinstance(_df, pd.DataFrame) and not _df.empty else None
+    except Exception:
+        return None
+
+
+def _save_missing_cache(df) -> None:
+    try:
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            df.to_pickle(_missing_cache_path())
+    except Exception:
+        pass
+
+
+def _clear_missing_cache() -> None:
+    import os as _o
+    try:
+        _p = _missing_cache_path()
+        if _o.path.exists(_p):
+            _o.remove(_p)
+    except Exception:
+        pass
+
+
 @st.cache_data(show_spinner=False, ttl=1800)
 def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     """يحسب المنتجات المفقودة الحقيقية من المخزن الدائم (مستقل عن الوظيفة الهشّة).
@@ -4825,6 +4863,14 @@ elif page == "🔍 منتجات مفقودة":
     if not isinstance(_res_now, dict):
         _res_now = {}
     _cur_miss = _res_now.get("missing")
+    # 🆕 كاش قرص أولاً: استعد المفقودات المحسوبة سابقاً فوراً (بلا حساب) كي تبقى
+    # ظاهرة عبر الجلسات وإعادة تشغيل الحاوية — تماماً كباقي الأقسام.
+    if not isinstance(_cur_miss, pd.DataFrame) or _cur_miss.empty:
+        _disk_miss = _load_missing_cache()
+        if isinstance(_disk_miss, pd.DataFrame) and not _disk_miss.empty:
+            _res_now["missing"] = _disk_miss
+            st.session_state.results = _res_now
+            _cur_miss = _disk_miss
     if not isinstance(_cur_miss, pd.DataFrame) or _cur_miss.empty:
         try:
             _last = get_last_job()
@@ -4832,6 +4878,7 @@ elif page == "🔍 منتجات مفقودة":
             _job_status_m = str((_last or {}).get("status", ""))
             if not _job_miss.empty:
                 _res_now["missing"] = _ensure_competitor_details(_job_miss)  # v33
+                _save_missing_cache(_res_now["missing"])  # 🆕 خزّن على القرص ليبقى
                 st.session_state.results = _res_now
                 st.info(
                     f"♻️ استُعيدت **{len(_job_miss):,}** منتجاً مفقوداً من آخر تحليل محفوظ "
@@ -4856,6 +4903,7 @@ elif page == "🔍 منتجات مفقودة":
                     st.session_state[_auto_key] = True
                     if isinstance(_computed, pd.DataFrame) and not _computed.empty:
                         _res_now["missing"] = _ensure_competitor_details(_computed)  # v33
+                        _save_missing_cache(_res_now["missing"])  # 🆕 خزّن على القرص ليبقى
                         st.session_state.results = _res_now
                         st.rerun()  # أعد الرسم ليعرضها قسم العرض أدناه مباشرة
                     else:
@@ -4867,6 +4915,7 @@ elif page == "🔍 منتجات مفقودة":
                 if st.button("🔄 إعادة حساب المفقودة من المخزن (108k+ منافس)",
                              key="miss_compute_now"):
                     st.session_state.pop(_auto_key, None)
+                    _clear_missing_cache()  # 🆕 امسح كاش القرص لإجبار حساب جديد
                     try:
                         _compute_missing_from_store.clear()
                     except Exception:
@@ -4948,20 +4997,20 @@ elif page == "🔍 منتجات مفقودة":
                     _est_val = pd.to_numeric(df[_pc], errors="coerce").sum()
                     break
 
-            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            # ── إحصاءات أساسية مبسّطة (3 مقاييس + زر تحقّق AI عند الحاجة) ──
+            c1, c2, c3, c4 = st.columns(4)
             c1.metric("🟢 مفقود مؤكد", f"{_gc:,}")
-            c2.metric("🔵 محتمل موجود", f"{_revc:,}", help="65-82% — يُحسم بالذكاء الاصطناعي أو يدوياً")
-            c3.metric("🏷️ تستر", f"{has_tester:,}")
-            c4.metric("📦 إجمالي معروض", f"{total_miss:,}")
-            c5.metric("💰 قيمة تقديرية", f"{_est_val:,.0f} ر.س")
-            with c6:
-                if _revc > 0 and st.button("🤖 تحقّق AI من المراجعة", key="miss_ai_verify_btn",
+            c2.metric("📦 الإجمالي", f"{total_miss:,}")
+            c3.metric("💰 قيمة تقديرية", f"{_est_val:,.0f} ر.س")
+            with c4:
+                if _revc > 0 and st.button(f"🤖 تحقّق AI ({_revc:,})", key="miss_ai_verify_btn",
                                            use_container_width=True,
                                            help="Gemini يفحص قسم «محتمل موجود»: المؤكد يُزال، والمرفوض يبقى مفقوداً"):
-                    with st.spinner(f"🤖 Gemini يفحص {_revc:,} منتجاً في المراجعة (تدوير المفاتيح)…"):
+                    with st.spinner(f"🤖 Gemini يفحص {_revc:,} منتجاً في المراجعة…"):
                         try:
                             _new_df, _conf_owned, _conf_miss = verify_review_bucket_with_ai(df)
                             st.session_state.results["missing"] = _new_df
+                            _save_missing_cache(_new_df)  # 🆕 حدّث كاش القرص بعد التحقق
                             st.session_state["_action_toast"] = (
                                 "success",
                                 f"✅ تحقّق AI: {_conf_owned:,} مؤكد امتلاكنا (أُزيل) · "
@@ -4970,22 +5019,6 @@ elif page == "🔍 منتجات مفقودة":
                         except Exception as _ai_err:
                             st.session_state["_action_toast"] = ("error", f"تعذّر تحقّق AI: {_ai_err}")
                     st.rerun()
-
-            # ═══ v33: مقاييس الأولوية ═══
-            _critical_count = 0
-            if "درجة_الأولوية" in df.columns:
-                _critical_count = int((pd.to_numeric(df["درجة_الأولوية"], errors="coerce").fillna(0) >= 80).sum())
-            _multi_comp = 0
-            if "تفاصيل_المنافسين" in df.columns:
-                _multi_comp = int(df["تفاصيل_المنافسين"].apply(
-                    lambda x: len(x) if isinstance(x, list) else 1
-                ).ge(3).sum())
-            elif "عدد_المنافسين" in df.columns:
-                _multi_comp = int((pd.to_numeric(df["عدد_المنافسين"], errors="coerce").fillna(1) >= 3).sum())
-            _pk1, _pk2, _pk3 = st.columns(3)
-            _pk1.metric("🔴 أولوية حرجة", f"{_critical_count:,}")
-            _pk2.metric("🏪 عند 3+ منافسين", f"{_multi_comp:,}")
-            _pk3.metric("📦 إجمالي", f"{total_miss:,}")
 
             # ── v31.11c: تصدير سريع للمنتجات المؤكدة الجاهزة للرفع ──
             if _gc > 0:

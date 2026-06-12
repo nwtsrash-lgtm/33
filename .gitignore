@@ -6,6 +6,7 @@ data/*.sqlite
 data/*.csv
 data/*.xlsx
 data/*.json
+data/*.pkl
 !data/competitors_list_v30.json
 !data/config*.json
 !data/our_catalog_light.csv
