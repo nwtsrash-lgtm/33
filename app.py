@@ -1516,98 +1516,81 @@ import logging as _restore_log
 _restore_log.basicConfig(level=_restore_log.INFO)
 _rlog = _restore_log.getLogger("auto_restore")
 
-if st.session_state.results is None and not st.session_state.job_running:
-    _rlog.info("🔄 [RESTORE] بدء استعادة النتائج — results=None, job_running=False")
-    _rlog.info("🔄 [RESTORE] DB_PATH = %s", DB_PATH if 'DB_PATH' in dir() else 'N/A')
-    _rlog.info("🔄 [RESTORE] DATA_DIR = %s", __import__('os').environ.get('DATA_DIR', 'NOT SET'))
-
-    # أولاً: تنظيف الوظائف المعلقة
+def _safe_auto_restore():
+    """استعادة آخر نتائج تحليل — محمية بالكامل من الأخطاء."""
     try:
-        release_stale_running_jobs(stale_after_seconds=300)
-    except Exception as _stale_err:
-        _rlog.warning("⚠️ [RESTORE] release_stale failed: %s", _stale_err)
+        _rlog.info("🔄 [RESTORE] بدء الاستعادة...")
+        _rlog.info("🔄 [RESTORE] DATA_DIR = %s", __import__('os').environ.get('DATA_DIR', 'NOT SET'))
 
-    # ثانياً: البحث عن آخر وظيفة مكتملة
-    _auto_job = None
-    try:
-        conn = get_db()
-        _rlog.info("🔄 [RESTORE] DB connection OK — database: %s", conn.execute("PRAGMA database_list").fetchone()[2] if conn else "NONE")
+        # تنظيف الوظائف المعلقة
         try:
-            # عدد الوظائف في DB
+            release_stale_running_jobs(stale_after_seconds=300)
+        except Exception:
+            pass
+
+        # البحث عن آخر وظيفة مكتملة
+        conn = get_db()
+        try:
             _job_count = conn.execute("SELECT COUNT(*) FROM job_progress").fetchone()[0]
-            _done_count = conn.execute("SELECT COUNT(*) FROM job_progress WHERE status IN ('done','stopped')").fetchone()[0]
-            _rlog.info("🔄 [RESTORE] إجمالي الوظائف: %d — المكتملة: %d", _job_count, _done_count)
+            _rlog.info("🔄 [RESTORE] إجمالي الوظائف: %d", _job_count)
 
             _done_row = conn.execute(
                 "SELECT job_id FROM job_progress WHERE status IN ('done','stopped') "
-                "AND results_json != '[]' AND missing_json IS NOT NULL AND missing_json != '[]' "
+                "AND results_json IS NOT NULL AND length(results_json) > 10 "
                 "ORDER BY id DESC LIMIT 1"
             ).fetchone()
-            if not _done_row:
-                _done_row = conn.execute(
-                    "SELECT job_id FROM job_progress WHERE status IN ('done','stopped') AND results_json != '[]' "
-                    "ORDER BY id DESC LIMIT 1"
-                ).fetchone()
-            _rlog.info("🔄 [RESTORE] وظيفة مكتملة: %s", _done_row["job_id"] if _done_row else "لا يوجد!")
         finally:
             conn.close()
-        if _done_row:
-            _auto_job = get_job_progress(_done_row["job_id"])
-    except Exception as _db_err:
-        _rlog.error("❌ [RESTORE] فشل قراءة DB: %s", _db_err, exc_info=True)
+
+        if not _done_row:
+            _rlog.warning("⚠️ [RESTORE] لا توجد وظيفة مكتملة")
+            return
+
+        job_id = _done_row["job_id"]
+        _rlog.info("🔄 [RESTORE] وظيفة: %s", job_id)
+
+        # تحميل النتائج — القسم الثقيل
+        _auto_job = get_job_progress(job_id)
+        if not _auto_job or not _auto_job.get("results"):
+            _rlog.warning("⚠️ [RESTORE] لا توجد نتائج في الوظيفة")
+            return
+
+        _rlog.info("✅ [RESTORE] نتائج: %d سجل", len(_auto_job["results"]))
+
+        _auto_records = restore_results_from_json(_auto_job["results"])
+        _auto_df = pd.DataFrame(_auto_records)
+        if _auto_df.empty:
+            _rlog.warning("⚠️ [RESTORE] DataFrame فارغ!")
+            return
+
+        _rlog.info("✅ [RESTORE] DataFrame: %d صف", len(_auto_df))
+
+        # المفقودات
+        _auto_miss = pd.DataFrame(_auto_job.get("missing", [])) if _auto_job.get("missing") else pd.DataFrame()
+
+        # تقسيم النتائج
+        _auto_r = _split_results(_auto_df)
         try:
-            _auto_job = get_last_job()
-        except Exception as _fb_err:
-            _rlog.error("❌ [RESTORE] فشل fallback أيضاً: %s", _fb_err)
-
-    if _auto_job and _auto_job.get("status") in ("done", "stopped") and _auto_job.get("results"):
-        _rlog.info("✅ [RESTORE] وُجدت وظيفة مكتملة — job_id=%s, results_count=%d",
-                    _auto_job.get("job_id", "?"), len(_auto_job.get("results", [])))
+            _auto_r = _auto_resolve_review(_auto_r)
+        except Exception:
+            pass
+        _auto_r["missing"] = _auto_miss
         try:
-            _auto_records = restore_results_from_json(_auto_job["results"])
-            _auto_df = pd.DataFrame(_auto_records)
-            _rlog.info("✅ [RESTORE] DataFrame: %d صف × %d عمود", len(_auto_df), len(_auto_df.columns))
+            _auto_r = _dedup_missing_vs_matched(_auto_r)
+        except Exception:
+            pass
 
-            if not _auto_df.empty:
-                _auto_miss = pd.DataFrame(_auto_job.get("missing", [])) if _auto_job.get("missing") else pd.DataFrame()
-                _rlog.info("✅ [RESTORE] مفقودات: %d", len(_auto_miss))
+        st.session_state.results     = _auto_r
+        st.session_state.analysis_df = _auto_df
+        st.session_state.job_id      = _auto_job.get("job_id")
+        _rlog.info("🎉 [RESTORE] تمت الاستعادة بنجاح!")
 
-                if _auto_miss.empty:
-                    try:
-                        _miss_conn = get_db()
-                        try:
-                            _miss_row = _miss_conn.execute(
-                                "SELECT missing_json FROM job_progress WHERE status='done' "
-                                "AND missing_json IS NOT NULL AND missing_json != '[]' "
-                                "ORDER BY id DESC LIMIT 1"
-                            ).fetchone()
-                        finally:
-                            _miss_conn.close()
-                        if _miss_row:
-                            import json as _json_miss
-                            _auto_miss = pd.DataFrame(_json_miss.loads(_miss_row["missing_json"]))
-                            _rlog.info("✅ [RESTORE] مفقودات من وظيفة أقدم: %d", len(_auto_miss))
-                    except Exception as _miss_err:
-                        _rlog.warning("⚠️ [RESTORE] فشل تحميل مفقودات: %s", _miss_err)
+    except Exception as e:
+        _rlog.error("❌ [RESTORE] فشل: %s", e, exc_info=True)
+        # التطبيق يفتح عادي بدون نتائج — لن يتعطل
 
-                _auto_r = _split_results(_auto_df)
-                try:
-                    _auto_r = _auto_resolve_review(_auto_r)
-                except Exception as _ar_err:
-                    _rlog.warning("⚠️ [RESTORE] auto_resolve_review skipped: %s", _ar_err)
-                _auto_r["missing"] = _auto_miss
-                _auto_r = _dedup_missing_vs_matched(_auto_r)
-                st.session_state.results     = _auto_r
-                st.session_state.analysis_df = _auto_df
-                st.session_state.job_id      = _auto_job.get("job_id")
-                _rlog.info("🎉 [RESTORE] تمت الاستعادة بنجاح! results=%d sections", len(_auto_r))
-            else:
-                _rlog.warning("⚠️ [RESTORE] DataFrame فارغ بعد الاستعادة!")
-        except Exception as _restore_err:
-            _rlog.error("❌ [RESTORE] فشل استعادة النتائج: %s", _restore_err, exc_info=True)
-    else:
-        _rlog.warning("⚠️ [RESTORE] لا توجد وظيفة مكتملة لاستعادتها — auto_job=%s",
-                       "None" if not _auto_job else f"status={_auto_job.get('status')}, has_results={bool(_auto_job.get('results'))}")
+if st.session_state.results is None and not st.session_state.job_running:
+    _safe_auto_restore()
 
 
 # ── دوال مساعدة ───────────────────────────
