@@ -7,6 +7,16 @@ from textwrap import dedent
 from datetime import datetime
 
 
+def _no_blank_lines(html: str) -> str:
+    """يزيل الأسطر الفارغة من HTML قبل تمريره لـ st.markdown(unsafe_allow_html=True).
+
+    🐞 سطر فارغ واحد داخل HTML يجعل معالج markdown في Streamlit يُنهي كتلة الـHTML
+    عنده، فيظهر باقي الـHTML كنص خام مرئي (التسرّب الذي ظهر في بطاقات المفقودات).
+    إزالة الأسطر الفارغة لا تغيّر العرض إطلاقاً (HTML يتجاهل المسافات بين الوسوم).
+    """
+    return "\n".join(_l for _l in str(html).split("\n") if _l.strip())
+
+
 # ⚡ CSS ثابت لا يتغيّر أثناء التشغيل — يُبنى مرة واحدة ويُخبَّأ.
 # آمن تماماً: get_styles بلا وسائط ويُرجع نصاً ثابتاً، فالتخبئة لا تغيّر المخرجات.
 @lru_cache(maxsize=1)
@@ -346,7 +356,7 @@ def vs_card(our_name, our_price, comp_name, comp_price, diff, comp_source="",
 <div class="card-date">📅 {_html_escape(date_s)}</div>
 </div>'''
 
-    return f'<div class="smart-card">{header}{comp_section}{footer}</div>'
+    return _no_blank_lines(f'<div class="smart-card">{header}{comp_section}{footer}</div>')
 
 
 def comp_strip(all_comps, our_price=None, rank_by_threat=False, show_threat_badge=False):
@@ -707,7 +717,7 @@ def miss_card_v2(data: dict) -> str:
         </div>'''
     # ── البطاقة الرئيسية ──
     _comp_word = "منافس" if n_comp <= 2 else ("منافسين" if n_comp <= 10 else "منافس")
-    return f'''
+    _miss_html = f'''
     <div style="background:linear-gradient(135deg,#0a0a1a 0%,#0d1117 50%,#111827 100%);
                 border-radius:18px;padding:20px;margin-bottom:14px;
                 border:1px solid {c_color}22;
@@ -753,6 +763,7 @@ def miss_card_v2(data: dict) -> str:
         {var_html}
         {pot_html}
     </div>'''
+    return _no_blank_lines(_miss_html)
 
 
 def lazy_img_tag(url, w=56, h=56, alt="", loading="lazy"):
@@ -972,7 +983,7 @@ def _build_single_card_html(row: dict) -> str:
 
     reason_html = (f'<div class="v32-reason">ℹ️ {_html_escape(reason_v)}</div>' if reason_v else "")
 
-    return f"""<div class="v32-card {arena_class}">
+    _v32_html = f"""<div class="v32-card {arena_class}">
 <div class="v32-header" dir="rtl">
 {_img_tag(our_img, 48, 48, '#334155', 8)}
 <div class="v32-header-info">
@@ -1009,6 +1020,7 @@ def _build_single_card_html(row: dict) -> str:
 {f'<span class="v32-date">📅 {_html_escape(date_str)}</span>' if date_str else ''}
 </div>
 </div>"""
+    return _no_blank_lines(_v32_html)
 
 
 def render_product_section(page_df, prefix: str = "") -> None:
