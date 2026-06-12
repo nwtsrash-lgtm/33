@@ -700,19 +700,33 @@ def any_running_job(stale_after_seconds: int = 3600):
 
 
 def release_stale_running_jobs(stale_after_seconds: int = 3600) -> int:
-    """Marks stuck 'running' rows (not updated recently) as 'stopped' so the
-    UI mutex does not deadlock. Returns number of rows updated."""
+    """Marks stuck 'running' rows (not updated recently) so the UI mutex does
+    not deadlock. Returns number of rows updated.
+
+    ⚠️ السبب الجذري: لو اكتملت المعالجة فعلاً (total=processed>0) لكن أعادت
+    الحاوية التشغيل قبل حفظ 'done'، نُسجّلها 'done' (لا 'stopped') كي لا نضيّع
+    تحليلاً مكتملاً. الوظائف غير المكتملة فقط تُسجَّل 'stopped'.
+    """
     try:
         with sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30) as conn:
             conn.execute("PRAGMA busy_timeout=30000;")
-            cur = conn.execute(
-                "UPDATE job_progress SET status='stopped' "
-                "WHERE status='running' AND "
-                "(strftime('%s','now') - strftime('%s', COALESCE(updated_at, started_at))) > ?",
+            _stale = (
+                "status='running' AND "
+                "(strftime('%s','now') - strftime('%s', COALESCE(updated_at, started_at))) > ?"
+            )
+            # اكتمل فعلاً → done
+            cur_done = conn.execute(
+                f"UPDATE job_progress SET status='done' "
+                f"WHERE {_stale} AND total = processed AND processed > 0",
+                (int(stale_after_seconds),),
+            )
+            # لم يكتمل → stopped
+            cur_stop = conn.execute(
+                f"UPDATE job_progress SET status='stopped' WHERE {_stale}",
                 (int(stale_after_seconds),),
             )
             conn.commit()
-            return cur.rowcount or 0
+            return (cur_done.rowcount or 0) + (cur_stop.rowcount or 0)
     except Exception:
         return 0
 

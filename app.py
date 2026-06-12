@@ -1535,7 +1535,9 @@ def _safe_auto_restore():
             _rlog.info("🔄 [RESTORE] إجمالي الوظائف: %d", _job_count)
 
             _done_row = conn.execute(
-                "SELECT job_id FROM job_progress WHERE status IN ('done','stopped') "
+                "SELECT job_id, length(results_json) AS _rjlen FROM job_progress "
+                "WHERE status IN ('done','stopped') "
+                "AND total = processed AND processed > 0 "
                 "AND results_json IS NOT NULL AND length(results_json) > 10 "
                 "ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -1544,6 +1546,19 @@ def _safe_auto_restore():
 
         if not _done_row:
             _rlog.warning("⚠️ [RESTORE] لا توجد وظيفة مكتملة")
+            return
+
+        # 🛡️ حارس الذاكرة: نتائج ضخمة جداً قد تُسبّب OOM على حاويات محدودة الذاكرة
+        # (مثل Railway) فتظهر شاشة سوداء. نتخطّى الاستعادة التلقائية لإبقاء التطبيق
+        # يفتح، مع علامة للواجهة. الحد قابل للضبط عبر MAX_RESTORE_JSON_BYTES (افتراضي 30MB).
+        _max_restore = int(__import__("os").environ.get("MAX_RESTORE_JSON_BYTES", str(50 * 1024 * 1024)))
+        _rjlen = _done_row["_rjlen"] or 0
+        if _rjlen > _max_restore:
+            _rlog.warning(
+                "⚠️ [RESTORE] نتائج كبيرة (%.1f MB > الحد %.1f MB) — تخطّي تلقائي لحماية الذاكرة",
+                _rjlen / 1048576, _max_restore / 1048576,
+            )
+            st.session_state["_restore_skipped_big_job"] = _done_row["job_id"]
             return
 
         job_id = _done_row["job_id"]
@@ -1568,12 +1583,12 @@ def _safe_auto_restore():
         # المفقودات
         _auto_miss = pd.DataFrame(_auto_job.get("missing", [])) if _auto_job.get("missing") else pd.DataFrame()
 
-        # تقسيم النتائج
+        # تقسيم النتائج (سريع، محلي، بلا AI).
+        # ⚠️ لا نستدعي _auto_resolve_review هنا: فهو يُطلق نداءات AI متزامنة
+        # (auto_resolve_review_v2) كانت تُعلّق التطبيق عند كل فتح جلسة (شاشة سوداء
+        # على Railway) وتستهلك حصة AI. الحسم بالـ AI يتم أثناء التحليل الفعلي فقط،
+        # لا أثناء الاستعادة السلبية عند فتح التطبيق.
         _auto_r = _split_results(_auto_df)
-        try:
-            _auto_r = _auto_resolve_review(_auto_r)
-        except Exception:
-            pass
         _auto_r["missing"] = _auto_miss
         try:
             _auto_r = _dedup_missing_vs_matched(_auto_r)
@@ -5992,6 +6007,21 @@ elif page == "🔍 منتجات مفقودة":
             _ms, _me, _mp = render_pagination(len(_display_df), 12, "miss")
             page_df = _display_df.iloc[_ms:_me]
 
+            # ⚡ خريطة بحث مسبقة (اسم منتجنا → أول صف مطابق في analysis_df) تُبنى مرة
+            # واحدة بدل مسح DataFrame كامل لكل بطاقة. تحفظ صفوف Series كاملة فتطابق
+            # دلالة [df["المنتج"]==x].iloc[0] تماماً (نفس كل الأعمدة).
+            _adf_pot_loop = st.session_state.analysis_df
+            _adf_first_by_name = {}
+            if (isinstance(_adf_pot_loop, pd.DataFrame) and not _adf_pot_loop.empty
+                    and "المنتج" in _adf_pot_loop.columns):
+                try:
+                    _dedup_adf = _adf_pot_loop.drop_duplicates(subset="المنتج", keep="first")
+                    for _pos in range(len(_dedup_adf)):
+                        _r_series = _dedup_adf.iloc[_pos]
+                        _adf_first_by_name[_r_series["المنتج"]] = _r_series
+                except Exception:
+                    _adf_first_by_name = {}
+
             for idx, row in page_df.iterrows():
                 name  = str(row.get("منتج_المنافس", ""))
                 _miss_key = f"missing_{name}_{idx}"
@@ -6091,12 +6121,10 @@ elif page == "🔍 منتجات مفقودة":
                     _miss_img = _cached_thumb_from_product_url(_miss_comp_url)
 
                 _our_potential_img = ""
-                _adf_pot = st.session_state.analysis_df
-                if (variant_product and isinstance(_adf_pot, pd.DataFrame)
-                        and not _adf_pot.empty and "المنتج" in _adf_pot.columns):
-                    _match_row = _adf_pot[_adf_pot["المنتج"] == variant_product]
-                    if not _match_row.empty:
-                        _our_potential_img, _ = row_media_urls_from_analysis(_match_row.iloc[0])
+                if variant_product and variant_product in _adf_first_by_name:
+                    _our_potential_img, _ = row_media_urls_from_analysis(
+                        _adf_first_by_name[variant_product]
+                    )
 
                 with card_col:
                     if _our_potential_img and _has_variant:
