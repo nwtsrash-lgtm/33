@@ -1117,11 +1117,17 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         #   • تشابه عالٍ لكن حجم مختلف (نسخة/حجم مختلف محتمل)، أو
         #   • 65-82% بحجم متوافق — بشرط تطابق الماركة في الحالتين
         _is_review = False
-        if (_best_it is not None and _c_brand_n
-                and _best_it["brand_n"] == _c_brand_n
-                and ((_best_sc >= _CONFIRM and not _size_ok)
-                     or (_REVIEW_MIN <= _best_sc < _CONFIRM and _size_ok))):
-            _is_review = True
+        if _best_it is not None and _best_sc >= _REVIEW_MIN:
+            _brand_match = bool(_c_brand_n and _best_it["brand_n"] == _c_brand_n)
+            if _best_sc >= _CONFIRM and not _size_ok:
+                _is_review = True   # ≥82 بحجم مختلف → نسخة/حجم محتمل
+            elif _best_sc >= 75 and _size_ok:
+                # 75-82 بحجم متوافق → «محتمل مملوك» حتى لو اختلفت الماركة إملائياً
+                # (يلتقط مثل ثمين↔ثامين فلا يُؤكَّد مفقوداً خطأً — يُحسم بالمراجعة/AI).
+                _is_review = True
+            elif _REVIEW_MIN <= _best_sc < 75 and _size_ok and _brand_match:
+                _is_review = True   # 65-75 + ماركة متطابقة → محتمل
+        if _is_review:
             _review += 1
         _comp_list = p.get("competitors_list") or []
         # «المنافسون»: أسماء كل المتاجر التي تبيع هذا المنتج (بعد الدمج العالمي)
@@ -1148,8 +1154,9 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             # review = محتمل موجود (يحتاج تأكيد) | green = مفقود مؤكد
             "مستوى_الثقة":  "review" if _is_review else "green",
             "درجة_التشابه": round(_best_sc, 1),
-            # المنتج المرشّح لدينا (لقسم المراجعة + تحقّق Gemini)
-            "منتج_مطابق_محتمل": (_best_it["raw"] if (_is_review and _best_it) else ""),
+            # أقرب منتج لدينا — يُسجَّل لكل صف (حتى المؤكد مفقود) كي لا تُفقد العلاقة:
+            # تظهر في البطاقة «🔍 مشابه لدينا: X (٪)» فيراها المستخدم ويستفيد منها.
+            "منتج_مطابق_محتمل": (_best_it["raw"] if _best_it else ""),
             "حالة_المراجعة":  "بانتظار التحقق" if _is_review else "",
             "هو_تستر":      _item_type(_nm) == "tester",
             "نوع_السلعة":   _item_type(_nm),   # retail / tester / sample
