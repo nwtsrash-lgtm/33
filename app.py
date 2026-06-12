@@ -804,20 +804,34 @@ _MISS_STOP = set(
     "كولونيا كولن مل غرام للرجال للنساء رجالي نسائي".split()
 )
 
+import re as _ar_re
+
+
+def _ar_norm(s: str) -> str:
+    """تطبيع عربي يوحّد اختلافات الإملاء الشائعة في أسماء العطور المُعرّبة:
+    يزيل التشكيل والتطويل، ويوحّد الألف بأشكالها/التاء المربوطة/الألف المقصورة/الهمزات.
+    يقلّل الإيجابيات الكاذبة في المفقودات (مثل بلومينغ↔بلومينج، عينة↔عينه)."""
+    s = _ar_re.sub("[ً-ْـ]", "", str(s))
+    return (s.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
+             .replace("ة", "ه").replace("ى", "ي").replace("ؤ", "و").replace("ئ", "ي"))
+
+
+_MISS_STOP_N = {_ar_norm(w) for w in _MISS_STOP}
+
 
 def _miss_bare(nm: str) -> str:
-    """اسم مجرّد للمطابقة: تطبيع + إزالة الكلمات الشائعة/الأرقام/القصيرة."""
+    """اسم مجرّد للمطابقة: تطبيع عربي + تطبيع المحرّك + إزالة الشائعة/الأرقام/القصيرة."""
     import re as _re
     from engines.engine import normalize_name as _nn
     return " ".join(
-        t for t in _nn(str(nm)).split()
-        if t not in _MISS_STOP and not _re.fullmatch(r"\d+", t) and len(t) >= 2
+        t for t in _nn(_ar_norm(nm)).split()
+        if _ar_norm(t) not in _MISS_STOP_N and not _re.fullmatch(r"\d+", t) and len(t) >= 2
     )
 
 
 def _miss_toks(bare: str) -> list:
-    """أهم 4 كلمات دالّة (≥4 أحرف) للحجب (blocking)."""
-    return [t for t in bare.split() if len(t) >= 4][:4]
+    """أهم 6 كلمات دالّة (≥3 أحرف) للحجب (blocking) — أوسع لالتقاط مطابقات أكثر."""
+    return [t for t in bare.split() if len(t) >= 3][:6]
 
 
 # ═══ v33: حماية التوافق الخلفي للمفقودات ═══
@@ -4669,97 +4683,6 @@ elif page == "🔍 منتجات مفقودة":
         "has_results": bool(st.session_state.results),
         "has_missing_key": bool(st.session_state.results and "missing" in st.session_state.results),
     })
-    # ── 🤖 الاستخراج الذكي بـ AI (محرك جديد — يدمج: مطابقة + ماركات + تصنيفات + وصف) ──
-    with st.expander("🤖 استخراج ذكي بـ AI (مع ماركات + تصنيفات + وصف Mahwous)", expanded=False):
-        st.markdown(
-            "ارفع كتالوجك + ملفات المنافسين + ماركات/تصنيفات مهووس → "
-            "يستخرج المفقودات الحقيقية فقط (≥85%=موجود، 70-85%=AI verify، <70%=مفقود) "
-            "ويصدّر `new_products.xlsx` + `new_brands.csv` بصيغة سلة."
-        )
-        try:
-            from engines.missing_products_engine import build_missing_exports
-            import tempfile as _tmp
-            from pathlib import Path as _Path
-
-            _c1, _c2 = st.columns(2)
-            with _c1:
-                _smart_cat  = st.file_uploader("📦 كتالوج متجرنا", type=["xlsx","xls","csv"], key="smart_miss_cat")
-                _smart_br   = st.file_uploader("🏷️ ماركات مهووس", type=["csv","xlsx"], key="smart_miss_br")
-            with _c2:
-                _smart_cmp  = st.file_uploader("🏪 ملفات المنافسين (متعدد)", type=["csv","xlsx"],
-                                                accept_multiple_files=True, key="smart_miss_cmp")
-                _smart_cats = st.file_uploader("📁 تصنيفات مهووس", type=["csv","xlsx"], key="smart_miss_cats")
-
-            _o1, _o2 = st.columns(2)
-            _use_ai     = _o1.toggle("🤖 تفعيل AI", value=True, key="smart_miss_ai")
-            _gen_desc   = _o2.toggle("📝 توليد الوصف", value=True, key="smart_miss_desc")
-
-            if st.button("🚀 ابدأ الاستخراج الذكي", type="primary", key="smart_miss_run"):
-                if not all([_smart_cat, _smart_br, _smart_cats, _smart_cmp]):
-                    st.error("❌ ارفع جميع الملفات الأربعة.")
-                else:
-                    def _save(f):
-                        try:
-                            t = _tmp.NamedTemporaryFile(delete=False, suffix=_Path(f.name).suffix)
-                            t.write(f.read()); t.close(); return t.name
-                        except Exception as _sf_err:
-                            st.error(f"❌ فشل حفظ الملف {f.name}: {_sf_err}")
-                            return None
-                    with st.spinner("⚙️ جارٍ الفحص الذكي..."):
-                        try:
-                            _res = build_missing_exports(
-                                catalog_path=_save(_smart_cat),
-                                competitor_paths=[_save(f) for f in _smart_cmp],
-                                brands_path=_save(_smart_br),
-                                categories_path=_save(_smart_cats),
-                                use_ai=_use_ai,
-                                generate_descriptions=_gen_desc,
-                            )
-                        except Exception as _build_err:
-                            st.error(f"❌ فشل الاستخراج الذكي: {_build_err}")
-                            _res = None
-                    if _res:
-                        st.success(f"✅ {_res['products_count']} منتج | {_res['new_brands_count']} ماركة جديدة")
-                        _d1, _d2 = st.columns(2)
-                        with _d1:
-                            with open(_res["products_file"], "rb") as fh:
-                                st.download_button("📥 تحميل المنتجات الجديدة", fh.read(),
-                                    file_name=_Path(_res["products_file"]).name,
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                    use_container_width=True, key="smart_dl_prod")
-                        with _d2:
-                            if _res["new_brands_file"]:
-                                with open(_res["new_brands_file"], "rb") as fh:
-                                    st.download_button("📥 تحميل الماركات الجديدة", fh.read(),
-                                        file_name=_Path(_res["new_brands_file"]).name,
-                                        mime="text/csv", use_container_width=True, key="smart_dl_br")
-        except Exception as _smart_e:
-            st.error(f"تعذّر تحميل المحرك الذكي: {_smart_e}")
-
-    # ── المستشار الذكي للمفقودات ─────────────────────────────────────────
-    with st.expander("🧠 المستشار الذكي للمفقودات (AI Expert)", expanded=False):
-        st.markdown("اسأل المستشار عن استراتيجية إضافة هذه المنتجات أو تحليل السوق لها:")
-        miss_query = st.text_input(
-            "سؤالك للمستشار (مثال: ما هي أكثر ماركة مطلوبة من هذه القائمة؟)",
-            key="miss_expert_q",
-        )
-        if st.button("💬 اسأل المستشار", key="ask_miss_expert"):
-            if not miss_query.strip():
-                st.warning("اكتب سؤالاً أولاً.")
-            else:
-                with st.spinner("المستشار يحلل القائمة..."):
-                    _sample_data = []
-                    if st.session_state.results and "missing" in st.session_state.results:
-                        _src_df = st.session_state.results["missing"]
-                        if _src_df is not None and not _src_df.empty:
-                            _sample_data = _src_df.head(50).to_dict("records")
-                    _prompt = (
-                        f"بناء على هذه المنتجات المفقودة: {str(_sample_data)[:3000]}\n"
-                        f"أجب على: {miss_query}"
-                    )
-                    _response = call_ai(_prompt, "missing")
-                    st.markdown(f'<div class="ai-box">{_html_mod.escape(str(_response["response"]))}</div>', unsafe_allow_html=True)
-
     st.caption(
         "العدد هنا = **عناوين فريدة** بعد إزالة التكرار والمطابقة مع كتالوجنا — وليس بالضرورة كل صفوف ملف المنافس."
     )
@@ -4972,32 +4895,6 @@ elif page == "🔍 منتجات مفقودة":
                         except Exception:
                             st.caption("❌ openpyxl غير متوفر")
 
-
-            # ── تحليل AI الأولويات ────────────────────────────────────────
-            with st.expander("🤖 تحليل AI — أولويات الإضافة", expanded=False):
-                if st.button("📡 تحليل الأولويات", key="ai_missing_section"):
-                    with st.spinner("🤖 AI يحلل أولويات الإضافة..."):
-                        _pure = df[df["نوع_متاح"].str.strip() == ""] if "نوع_متاح" in df.columns else df
-                        _brands = _pure["الماركة"].value_counts().head(10).to_dict() if "الماركة" in _pure.columns else {}
-                        _summary = " | ".join(f"{b}:{c}" for b,c in _brands.items()) if _brands else "غير محدد"
-                        _lines   = "\n".join(
-                            f"- {r.get('منتج_المنافس','')}: {safe_float(r.get('سعر_المنافس',0)):.0f}ر.س ({r.get('الماركة','')}) — {r.get('المنافس','')}"
-                            for _, r in _pure.head(20).iterrows())
-                        _prompt = (
-                            f"لديّ {len(_pure)} منتج مفقود فعلاً (بدون التستر/الأساسي المتاح).\n"
-                            f"توزيع الماركات: {_summary}\nعينة:\n{_lines}\n\n"
-                            "أعطني:\n1. ترتيب أولويات الإضافة (عالية/متوسطة/منخفضة) مع السبب\n"
-                            "2. أي الماركات الأكثر ربحية؟\n"
-                            "3. سعر مقترح (أقل من المنافس بـ5-10 ر.س)\n"
-                            "4. منتجات لا تستحق الإضافة — ولماذا؟"
-                        )
-                        r_ai = call_ai(_prompt, "missing")
-                        resp = r_ai["response"] if r_ai["success"] else "❌ فشل AI"
-                        # تنظيف JSON من المخرجات
-                        import re as _re
-                        resp = _re.sub(r'```json.*?```', '', resp, flags=_re.DOTALL)
-                        resp = _re.sub(r'```.*?```', '', resp, flags=_re.DOTALL)
-                        st.markdown(f'<div class="ai-box">{_html_mod.escape(str(resp))}</div>', unsafe_allow_html=True)
 
             # ── v33: فلاتر محسّنة ظاهرة ─────────────────────────────────
             opts = get_filter_options(df)
