@@ -3436,12 +3436,12 @@ with st.sidebar:
                                     _miss_log.warning("Auto missing calc failed: %s", _miss_err)
                                     missing_df = pd.DataFrame()
                             _r = _split_results(df_all)
-                            # FIX: لف _auto_resolve_review بحماية — فشله لا يمنع عرض النتائج
-                            try:
-                                _r = _auto_resolve_review(_r)
-                            except Exception as _sb_ar_err:
-                                import logging as _sb_ar_log
-                                _sb_ar_log.warning("auto_resolve_review skipped in sidebar: %s", _sb_ar_err)
+                            # ⚠️ لا نستدعي _auto_resolve_review هنا: فهو يُطلق نداءات AI
+                            # متزامنة (auto_resolve_review_v2) داخل رسم الشريط الجانبي،
+                            # فتُعلّق التطبيق عند فتح/استعادة الجلسة على Railway (شاشة سوداء/
+                            # توقف عند ربط الـ volume الذي يحوي وظيفة done). الحسم بالـ AI
+                            # يتم بزر مخصّص أثناء التحليل الفعلي فقط — لا في التطبيق السلبي
+                            # للنتائج. (نفس إصلاح _safe_auto_restore الموثّق.)
                             _r["missing"] = missing_df
                             _r = _dedup_missing_vs_matched(_r)
                             st.session_state.results = _r
