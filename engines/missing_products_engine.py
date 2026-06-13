@@ -392,10 +392,13 @@ def _ai_is_missing(name: str, catalog: pd.DataFrame, score: float) -> bool:
             return True  # لا يطابق → مفقود
         if ans.startswith("نعم") or low == "yes" or low.startswith("yes "):
             return False  # يطابق → موجود
-        # غير واضح → اعتبره مفقوداً (لا تُسقط الفرصة)
+        # غير واضح → اعتبره مفقوداً (= يبقى ظاهراً، لا يُخفى): مبدأ السلامة هو عدم
+        # إخفاء مفقود حقيقي عند الشك. نُسجّل الحالة للمراجعة اليدوية.
+        logger.warning("AI ambiguous for missing-check (ans=%r) → kept visible as missing", ans[:60])
         return True
-    except Exception:
-        # فشل AI → اعتبره مفقوداً (حفاظاً على الفرص)
+    except Exception as _ai_exc:
+        # فشل AI → يبقى ظاهراً كمفقود (لا إخفاء صامت عند الشك). يُسجَّل للمراجعة.
+        logger.warning("AI call failed in missing-check (%s) → kept visible as missing", _ai_exc)
         return True
 
 

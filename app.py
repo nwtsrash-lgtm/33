@@ -799,39 +799,18 @@ def _reconciliation_check(results: dict) -> dict:
 
 
 
-_MISS_STOP = set(
-    "عطر عينه عينة تستر سامبل ماء او دو دي بارفيوم برفيوم بارفان تواليت توالت "
-    "كولونيا كولن مل غرام للرجال للنساء رجالي نسائي".split()
+# ── منطق المطابقة موحَّد في utils/missing_match.py (قابل للاختبار + يستخدمه القياس) ──
+# الدوال هنا أغلفة رفيعة للتوافق الخلفي مع بقية app.py.
+from utils.missing_match import (
+    ar_norm as _ar_norm,
+    miss_bare as _miss_bare,
+    miss_toks as _miss_toks,
+    skel_toks as _skel_toks,
+    MISS_STOP as _MISS_STOP,
+    MISS_STOP_N as _MISS_STOP_N,
+    CatalogIndex as _CatalogIndex,
+    classify as _classify_missing,
 )
-
-import re as _ar_re
-
-
-def _ar_norm(s: str) -> str:
-    """تطبيع عربي يوحّد اختلافات الإملاء الشائعة في أسماء العطور المُعرّبة:
-    يزيل التشكيل والتطويل، ويوحّد الألف بأشكالها/التاء المربوطة/الألف المقصورة/الهمزات.
-    يقلّل الإيجابيات الكاذبة في المفقودات (مثل بلومينغ↔بلومينج، عينة↔عينه)."""
-    s = _ar_re.sub("[ً-ْـ]", "", str(s))
-    return (s.replace("أ", "ا").replace("إ", "ا").replace("آ", "ا")
-             .replace("ة", "ه").replace("ى", "ي").replace("ؤ", "و").replace("ئ", "ي"))
-
-
-_MISS_STOP_N = {_ar_norm(w) for w in _MISS_STOP}
-
-
-def _miss_bare(nm: str) -> str:
-    """اسم مجرّد للمطابقة: تطبيع عربي + تطبيع المحرّك + إزالة الشائعة/الأرقام/القصيرة."""
-    import re as _re
-    from engines.engine import normalize_name as _nn
-    return " ".join(
-        t for t in _nn(_ar_norm(nm)).split()
-        if _ar_norm(t) not in _MISS_STOP_N and not _re.fullmatch(r"\d+", t) and len(t) >= 2
-    )
-
-
-def _miss_toks(bare: str) -> list:
-    """أهم 6 كلمات دالّة (≥3 أحرف) للحجب (blocking) — أوسع لالتقاط مطابقات أكثر."""
-    return [t for t in bare.split() if len(t) >= 3][:6]
 
 
 # ═══ v33: حماية التوافق الخلفي للمفقودات ═══
@@ -995,23 +974,9 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         _enrich(db_path=_db)  # يملأ KNOWN_BRANDS بماركات المنافسين (عربي+إنجليزي)
     except Exception:
         pass
-    # فهرس منتجاتنا الغني: عناصر + فهرس مقلوب بالكلمة + فهرس بالماركة (للحجب الموسّع)
-    _our_items: list = []          # [{bare, brand_n, size}]
-    _inv: dict = {}                # كلمة دالّة → مجموعة فهارس عناصرنا
-    _brand_idx: dict = {}          # ماركة مطبَّعة → قائمة فهارس عناصرنا
-    for _onm in our_df[_ncol].dropna().astype(str):
-        _ob = _miss_bare(_onm)
-        if not _ob:
-            continue
-        _idx = len(_our_items)
-        # حجب بالماركة: نستخدم النسخة السريعة (المرحلة المباشرة) — قانونية ومتّسقة الطرفين
-        _br_n = _normalize(_brand_fast(_onm) or "")
-        _our_items.append({"bare": _ob, "brand_n": _br_n,
-                           "size": _extract_size(_onm), "raw": _onm})
-        for _t in _miss_toks(_ob):
-            _inv.setdefault(_t, set()).add(_idx)
-        if _br_n:
-            _brand_idx.setdefault(_br_n, []).append(_idx)
+    # فهرس منتجاتنا الموحَّد (utils/missing_match.CatalogIndex):
+    # كلمات حرفية + كلمات بالهيكل العظمي (يلتقط اختلاف الإملاء العربي) + ماركة.
+    _catalog_idx = _CatalogIndex(our_df[_ncol].dropna().astype(str).tolist())
     # 2) دمج المرشّحين بالاسم المجرّد (إزالة تكرار المتاجر/الحجم/الصياغة)
     _cand: dict = {}
     for p in _prods:
@@ -1067,14 +1032,10 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             return "tester"
         return "retail"
 
-    # 3) طبقة تحقّق ضبابية: حجب موسّع (كلمات دالّة + ماركة) ثم تصنيف ثلاثي:
-    #    ≥82           = نملكه باسم مختلف ⇒ إخفاء (لا إيجابيات كاذبة)
-    #    65-82 + ماركة متطابقة + حجم متوافق = «محتمل موجود — مراجعة» (يبقى ظاهراً،
-    #                    يُحسم بـ Gemini أو يدوياً — لا نخسر مفقوداً حقيقياً)
-    #    غير ذلك       = مفقود مؤكد (green)
-    _CONFIRM    = _TH   # 82: عتبة «نملكه»
-    _REVIEW_MIN = 65    # عتبة «محتمل موجود»
-    _SIZE_TOL   = 8.0   # تسامح فرق الحجم (مل) لاعتبار منتجين نفس الحجم
+    # 3) طبقة تحقّق ضبابية موحّدة (utils/missing_match): حجب بالكلمات + الهيكل العظمي
+    #    (يلتقط النسخ الإملائية مثل كاشاريل↔كاشريل)، ثم تصنيف ثلاثي محافظ عبر classify()
+    #    والعتبات من config.py:
+    #      owned (≥82+حجم متوافق أو نسخة إملائية) ⇒ إخفاء | review (محتمل) ⇒ يبقى ظاهراً | green ⇒ مفقود مؤكد
     _owned = _review = 0
     rows = []
     for _bb, (p, _price) in _cand.items():
@@ -1085,48 +1046,16 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         # نفس المُطبِّع السريع المستخدم لكتالوجنا ⇒ ماركة قانونية متّسقة الطرفين
         _c_brand_n = _normalize(_brand_fast(_nm) or _brand_fast(str(p.get("brand", "") or "")) or "")
         _c_size = _extract_size(_nm)
-        # حجب موسّع: عناصرنا التي تشترك بكلمة دالّة OR بنفس الماركة
-        _cidx: set = set()
-        for _t in _miss_toks(_bb):
-            _b = _inv.get(_t)
-            if _b:
-                _cidx |= _b
-            if len(_cidx) > 200:
-                break
-        if _c_brand_n:
-            _cidx.update(_brand_idx.get(_c_brand_n, [])[:200])
-        # أفضل تطابق ضبابي ضمن المحجوبين
-        _best_sc = 0.0
-        _best_it = None
-        if _cidx:
-            _cidx_list = list(_cidx)
-            _bares = [_our_items[i]["bare"] for i in _cidx_list]
-            _m = _pr.extractOne(_bb, _bares, scorer=_fz.token_set_ratio)
-            if _m:
-                _best_sc = float(_m[1])
-                _best_it = _our_items[_cidx_list[_m[2]]]
-        # حارس الحجم: token_set_ratio يعطي 100% لأي اسم فرعي (subset) بعد تجريد
-        # الاسم، فيُخفي منتجات مختلفة من نفس الماركة. لذا لا نُخفي إلا بحجم متوافق.
-        _osz = _best_it["size"] if _best_it else 0
-        _size_ok = (not _c_size) or (not _osz) or abs(_c_size - _osz) <= _SIZE_TOL
-        # تأكيد صارم للإخفاء: تشابه عالٍ (≥82) + حجم متوافق ⇒ نملكه فعلاً
-        if _best_sc >= _CONFIRM and _size_ok:
+        # مطابقة محجوبة موحّدة (كلمات حرفية + هيكل عظمي + ماركة) ⇒ تلتقط النسخ الإملائية.
+        # best_match يُرجع (score, item, size_ok, skel_exact)؛ حارس الحجم يمنع وهم subset.
+        _best_sc, _best_it, _size_ok, _skel_exact, _sizematch_sc = _catalog_idx.best_match(
+            _bb, _c_brand_n, _c_size)
+        _brand_match = bool(_best_it and _c_brand_n and _best_it["brand_n"] == _c_brand_n)
+        _verdict = _classify_missing(_best_sc, _size_ok, _brand_match, _skel_exact, _sizematch_sc)
+        if _verdict == "owned":
             _owned += 1
-            continue  # نملكه باسم مختلف ⇒ ليس مفقوداً
-        # المنطقة الرمادية ⇒ تبقى ظاهرة لحسم AI (لا إخفاء صامت لمفقود حقيقي):
-        #   • تشابه عالٍ لكن حجم مختلف (نسخة/حجم مختلف محتمل)، أو
-        #   • 65-82% بحجم متوافق — بشرط تطابق الماركة في الحالتين
-        _is_review = False
-        if _best_it is not None and _best_sc >= _REVIEW_MIN:
-            _brand_match = bool(_c_brand_n and _best_it["brand_n"] == _c_brand_n)
-            if _best_sc >= _CONFIRM and not _size_ok:
-                _is_review = True   # ≥82 بحجم مختلف → نسخة/حجم محتمل
-            elif _best_sc >= 75 and _size_ok:
-                # 75-82 بحجم متوافق → «محتمل مملوك» حتى لو اختلفت الماركة إملائياً
-                # (يلتقط مثل ثمين↔ثامين فلا يُؤكَّد مفقوداً خطأً — يُحسم بالمراجعة/AI).
-                _is_review = True
-            elif _REVIEW_MIN <= _best_sc < 75 and _size_ok and _brand_match:
-                _is_review = True   # 65-75 + ماركة متطابقة → محتمل
+            continue  # نملكه (نفس الاسم/نسخة إملائية بحجم متوافق) ⇒ ليس مفقوداً
+        _is_review = (_verdict == "review")
         if _is_review:
             _review += 1
         _comp_list = p.get("competitors_list") or []
@@ -4839,8 +4768,11 @@ elif page == "🔍 منتجات مفقودة":
 
             # ── إحصاءات أساسية مبسّطة (3 مقاييس + زر تحقّق AI عند الحاجة) ──
             c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🟢 مفقود مؤكد", f"{_gc:,}")
-            c2.metric("📦 الإجمالي", f"{total_miss:,}")
+            c1.metric("🟢 مفقود مؤكد", f"{_gc:,}",
+                      help="منتجات لا نملكها بأي اسم — جاهزة للإضافة")
+            # فصل «المؤكد» عن «المراجعة»: الإجمالي وحده كان يوهم بالتضخّم.
+            c2.metric("🔵 يحتاج مراجعة", f"{_revc:,}",
+                      help="محتمل أننا نملكها باسم/إملاء مختلف — تُحسم بزر «تحقّق AI» أو يدوياً قبل الإضافة (لا تُضاف كمؤكد)")
             c3.metric("💰 قيمة تقديرية", f"{_est_val:,.0f} ر.س")
             with c4:
                 if _revc > 0 and st.button(f"🤖 تحقّق AI ({_revc:,})", key="miss_ai_verify_btn",

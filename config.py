@@ -120,6 +120,13 @@ HIGH_CONFIDENCE = 95
 REVIEW_THRESHOLD = 75
 PRICE_TOLERANCE = 5
 
+# ── عتبات كشف المنتجات المفقودة (مصدر واحد — لا أرقام سحرية مبعثرة) ──
+# تُستخدم في utils/missing_match.py و app.py::_compute_missing_from_store
+# و engine.smart_missing_barrier. مقيسة في tests/PHASE0_MISSING_DIAGNOSIS.md.
+MISSING_CONFIRMED_THRESHOLD = 82   # ≥ هذا (بحجم متوافق) = نملكه ⇒ يُخفى من المفقودة
+MISSING_REVIEW_THRESHOLD    = 70   # 70-82 (بحجم متوافق) = محتمل نملكه ⇒ مراجعة (لا حذف)
+MISSING_BARRIER_THRESHOLD   = 85   # عتبة الحاجز الأمني الثانوي (smart_missing_barrier)
+
 # ══════════════════════════════════════════════════
 #  كلمات الاستبعاد والتصنيف
 # ══════════════════════════════════════════════════
