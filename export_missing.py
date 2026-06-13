@@ -26,12 +26,6 @@ from pathlib import Path
 
 import pandas as pd
 
-# المُطبِّع الموحّد (utils/missing_match) — نفس منطق التطبيق (280+ مرادف عربي↔إنجليزي).
-try:
-    from utils.missing_match import miss_bare as _miss_bare_unified
-except Exception:
-    _miss_bare_unified = None
-
 # ── مسارات ──
 BASE = os.path.dirname(os.path.abspath(__file__))
 DATA_DIR = os.path.join(BASE, "data")
@@ -42,13 +36,7 @@ TIMESTAMP = datetime.now().strftime("%Y%m%d_%H%M")
 
 
 def _norm(s):
-    """تطبيع النص للمقارنة — موحّد عبر utils.missing_match (مرادفات عربي↔إنجليزي).
-    fallback لتطبيع حروف بسيط إذا تعذّر الاستيراد (تشغيل مستقل بلا بقية الحزمة)."""
-    if _miss_bare_unified is not None:
-        try:
-            return _miss_bare_unified(s)
-        except Exception:
-            pass
+    """تطبيع النص للمقارنة"""
     t = unicodedata.normalize("NFKC", str(s or ""))
     t = re.sub(r"[\u064B-\u065F\u0670]", "", t)
     t = re.sub(r"[أإآا]", "ا", t)
@@ -69,29 +57,30 @@ def main():
     print("  🏭 MISSING PRODUCTS EXPORTER — Salla Complete Package")
     print("=" * 60)
     
-    # ── 1. تحميل الكتالوج (مصدر موحَّد — إصلاح العطل 5) ──
+    # ── 1. تحميل الكتالوج ──
     print("\n[1/6] Loading our catalog...")
-    from utils.catalog_loader import load_our_catalog
     from utils.db_manager import get_db
-    our_df = load_our_catalog(prefer="csv")   # نفس مصدر التطبيق (الأكمل) ⇒ مفقود أدق
-    our_count = len(our_df)
-    print(f"  Our catalog: {our_count:,} products")
-
-    # Our names index
-    our_name_col = None
-    for c in ("product_name", "اسم المنتج", "المنتج", "أسم المنتج", "name"):
-        if c in our_df.columns:
-            our_name_col = c
-            break
-    our_names_norm = set()
-    if our_name_col:
-        our_names_norm = {_norm(n) for n in our_df[our_name_col].dropna().astype(str)}
-    print(f"  Our names index: {len(our_names_norm):,}")
-
-    # ── 2. تحميل منتجات المنافسين ──
-    print("\n[2/6] Loading competitor products...")
     conn = get_db()
     try:
+        # Our catalog
+        our_df = pd.read_sql("SELECT * FROM our_catalog", conn)
+        our_count = len(our_df)
+        print(f"  Our catalog: {our_count:,} products")
+        
+        # Our brands
+        our_name_col = None
+        for c in ("product_name", "اسم المنتج", "المنتج", "أسم المنتج", "name"):
+            if c in our_df.columns:
+                our_name_col = c
+                break
+        
+        our_names_norm = set()
+        if our_name_col:
+            our_names_norm = {_norm(n) for n in our_df[our_name_col].dropna().astype(str)}
+        print(f"  Our names index: {len(our_names_norm):,}")
+        
+        # ── 2. تحميل منتجات المنافسين ──
+        print("\n[2/6] Loading competitor products...")
         comp_df = pd.read_sql(
             "SELECT * FROM competitor_products_store WHERE price > 0", conn
         )
@@ -116,15 +105,13 @@ def main():
     duplicate_count = 0
     seen_norms = set()
     
-    # إصلاح العطل 4: لا حدّ أقصى — نعالج كامل الصفوف لتغطية 100% (كان 50K يقطع النصف
-    # فتُحسب منتجات نملكها كمفقودة). المعالجة سطر-بسطر خفيفة؛ extractOne مُسرَّع بـ C.
-    _comp_to_process = comp_df
-    _total_rows = len(comp_df)
-    print(f"  Processing all {_total_rows:,} competitor products (no row limit)")
-
+    # حد أقصى للمعالجة — لمنع التعليق مع ملفات ضخمة
+    _MAX_COMP_ROWS = 50000
+    _comp_to_process = comp_df.head(_MAX_COMP_ROWS)
+    if len(comp_df) > _MAX_COMP_ROWS:
+        print(f"  ⚠️ Processing first {_MAX_COMP_ROWS:,} of {len(comp_df):,} competitor products (limit)")
+    
     for _ri, (_, row) in enumerate(_comp_to_process.iterrows()):
-        if _ri and _ri % 20000 == 0:
-            print(f"    ...processed {_ri:,}/{_total_rows:,}")
         name = _safe(row.get("product_name", ""))
         if not name:
             continue

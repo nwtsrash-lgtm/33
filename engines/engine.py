@@ -29,8 +29,7 @@ try:
     from config import (REJECT_KEYWORDS, KNOWN_BRANDS, WORD_REPLACEMENTS,
                         MATCH_THRESHOLD, HIGH_CONFIDENCE, REVIEW_THRESHOLD,
                         PRICE_TOLERANCE, TESTER_KEYWORDS, SET_KEYWORDS,
-                        GEMINI_API_KEYS, OPENROUTER_API_KEY,
-                        MISSING_BARRIER_THRESHOLD)
+                        GEMINI_API_KEYS, OPENROUTER_API_KEY)
 except Exception:
     REJECT_KEYWORDS = ["sample","عينة","عينه","decant","تقسيم","split","miniature"]
     KNOWN_BRANDS = [
@@ -78,7 +77,6 @@ except Exception:
     MATCH_THRESHOLD    = 85
     HIGH_CONFIDENCE    = 95
     REVIEW_THRESHOLD   = 75
-    MISSING_BARRIER_THRESHOLD = 85
     PRICE_TOLERANCE    = 5
     TESTER_KEYWORDS    = ["tester", "تستر"]
     SET_KEYWORDS       = ["set", "طقم", "مجموعة"]
@@ -3023,20 +3021,12 @@ def find_missing_products(our_df, comp_dfs):
             "is_tester": is_t,
         })
 
-    # ── فهرس سريع بالكلمات + فهرس بالهيكل العظمي (يلتقط اختلاف الإملاء العربي) ──
-    # الإصلاح: الحجب بالكلمات الحرفية وحده يفوت النسخ الإملائية (كاشاريل↔كاشريل)
-    # فلا تُقارَن منتجات نملكها ⇒ مفقود كاذب. فهرس الهيكل العظمي يضمّها لنفس المحجب.
-    from utils.missing_match import ar_skeleton as _arsk
+    # ── فهرس سريع بالكلمات (مبني على agg المطبَّع عنيفاً) ──────────────
     _word_idx = {}
-    _skel_idx = {}
     for p in our_items:
-        toks = set(p["bare"].split())
-        for w in toks:
+        for w in set(p["bare"].split()):
             if len(w) >= 3:  # ← 3 بدل 4 لاستيعاب كلمات عربية قصيرة
                 _word_idx.setdefault(w, []).append(p)
-            _sk = _arsk(w)
-            if len(_sk) >= 3:
-                _skel_idx.setdefault(_sk, []).append(p)
 
     def _word_overlap(a, b):
         sa = set(a.split()); sb = set(b.split())
@@ -3058,14 +3048,9 @@ def find_missing_products(our_df, comp_dfs):
     def _get_candidates(bare_cn):
         """فهرس الكلمات للبحث السريع — يستخدم bare (normalize_aggressive بدون تستر)"""
         seen = {}
-        toks = set(bare_cn.split())
-        for w in toks:
+        for w in set(bare_cn.split()):
             if len(w) >= 3 and w in _word_idx:
                 for p in _word_idx[w]:
-                    seen[id(p)] = p
-            _sk = _arsk(w)
-            if len(_sk) >= 3 and _sk in _skel_idx:
-                for p in _skel_idx[_sk]:
                     seen[id(p)] = p
         # fallback: إذا لم يجد شيئاً → ابحث في كامل القائمة
         return list(seen.values()) if seen else our_items
@@ -3687,17 +3672,11 @@ def _our_sku_set(our_df: pd.DataFrame) -> set:
     return out
 
 
-def smart_missing_barrier(missing_df: pd.DataFrame, our_df: pd.DataFrame, threshold: int = None) -> pd.DataFrame:
+def smart_missing_barrier(missing_df: pd.DataFrame, our_df: pd.DataFrame, threshold: int = 92) -> pd.DataFrame:
     """
     محرك الحاجز الذكي: الفلتر النهائي قبل دخول المنتجات لقسم المفقودات.
     يضمن عدم تكرار عبر مطابقة الـ SKU والـ Fuzzy Matching الصارم مع كتالوجنا.
-
-    إصلاح العطل 1: كان يقارن أسماءً خام (عربي↔إنجليزي لا يتطابق) عند عتبة 92 صلبة،
-    فيتسرّب منتجات نملكها. الآن يُطبّع الطرفين بـ normalize_name (280+ مرادف) ويستخدم
-    العتبة الموحّدة من config (MISSING_BARRIER_THRESHOLD=85) — مصدر واحد، لا رقم سحري.
     """
-    if threshold is None:
-        threshold = MISSING_BARRIER_THRESHOLD
     if missing_df.empty:
         return missing_df
 
@@ -3713,10 +3692,6 @@ def smart_missing_barrier(missing_df: pd.DataFrame, our_df: pd.DataFrame, thresh
     if not our_names:
         return filtered_df.reset_index(drop=True)
 
-    # تطبيع أسماء كتالوجنا مرة واحدة (عربي↔إنجليزي) — المطابقة على المطبَّع لا الخام
-    our_names_norm = [normalize_name(n) for n in our_names]
-    our_names_norm = [n for n in our_names_norm if n]
-
     our_skus = _our_sku_set(our_df)
 
     keep_idx = []
@@ -3728,9 +3703,7 @@ def smart_missing_barrier(missing_df: pd.DataFrame, our_df: pd.DataFrame, thresh
         if comp_sku and (comp_sku in our_skus or raw_sku in our_skus):
             continue
 
-        comp_norm = normalize_name(comp_name)
-        match = (rf_process.extractOne(comp_norm, our_names_norm, scorer=fuzz.token_set_ratio)
-                 if comp_norm and our_names_norm else None)
+        match = rf_process.extractOne(comp_name, our_names, scorer=fuzz.token_set_ratio)
         if match and match[1] >= threshold:
             continue
 
