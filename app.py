@@ -799,18 +799,25 @@ def _reconciliation_check(results: dict) -> dict:
 
 
 
-# ── منطق المطابقة موحَّد في utils/missing_match.py (قابل للاختبار + يستخدمه القياس) ──
-# الدوال هنا أغلفة رفيعة للتوافق الخلفي مع بقية app.py.
-from utils.missing_match import (
-    ar_norm as _ar_norm,
-    miss_bare as _miss_bare,
-    miss_toks as _miss_toks,
-    skel_toks as _skel_toks,
-    MISS_STOP as _MISS_STOP,
-    MISS_STOP_N as _MISS_STOP_N,
-    CatalogIndex as _CatalogIndex,
-    classify as _classify_missing,
+_MISS_STOP = set(
+    "عطر عينه عينة تستر سامبل ماء او دو دي بارفيوم برفيوم بارفان تواليت توالت "
+    "كولونيا كولن مل غرام للرجال للنساء رجالي نسائي".split()
 )
+
+
+def _miss_bare(nm: str) -> str:
+    """اسم مجرّد للمطابقة: تطبيع + إزالة الكلمات الشائعة/الأرقام/القصيرة."""
+    import re as _re
+    from engines.engine import normalize_name as _nn
+    return " ".join(
+        t for t in _nn(str(nm)).split()
+        if t not in _MISS_STOP and not _re.fullmatch(r"\d+", t) and len(t) >= 2
+    )
+
+
+def _miss_toks(bare: str) -> list:
+    """أهم 4 كلمات دالّة (≥4 أحرف) للحجب (blocking)."""
+    return [t for t in bare.split() if len(t) >= 4][:4]
 
 
 # ═══ v33: حماية التوافق الخلفي للمفقودات ═══
@@ -875,44 +882,6 @@ def _clean_for_export(df: pd.DataFrame) -> pd.DataFrame:
     return df.drop(columns=[c for c in _drop if c in df.columns], errors="ignore")
 
 
-# ── كاش قرص للمفقودات: يبقى عبر الجلسات وإعادة تشغيل الحاوية (Railway) ──
-# المفقودات تُحسب مرة (فحص ثقيل على عشرات الآلاف) ثم تُحفظ على القرص، فتظهر فوراً
-# عند كل دخول للقسم بلا إعادة حساب — تماماً كباقي الأقسام. زر «إعادة حساب» يمسحها.
-def _missing_cache_path() -> str:
-    import os as _o
-    return _o.path.join(_o.environ.get("DATA_DIR", "data"), "missing_cache.pkl")
-
-
-def _load_missing_cache():
-    import os as _o
-    _p = _missing_cache_path()
-    if not _o.path.exists(_p):
-        return None
-    try:
-        _df = pd.read_pickle(_p)
-        return _df if isinstance(_df, pd.DataFrame) and not _df.empty else None
-    except Exception:
-        return None
-
-
-def _save_missing_cache(df) -> None:
-    try:
-        if isinstance(df, pd.DataFrame) and not df.empty:
-            df.to_pickle(_missing_cache_path())
-    except Exception:
-        pass
-
-
-def _clear_missing_cache() -> None:
-    import os as _o
-    try:
-        _p = _missing_cache_path()
-        if _o.path.exists(_p):
-            _o.remove(_p)
-    except Exception:
-        pass
-
-
 @st.cache_data(show_spinner=False, ttl=1800)
 def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     """يحسب المنتجات المفقودة الحقيقية من المخزن الدائم (مستقل عن الوظيفة الهشّة).
@@ -974,9 +943,23 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         _enrich(db_path=_db)  # يملأ KNOWN_BRANDS بماركات المنافسين (عربي+إنجليزي)
     except Exception:
         pass
-    # فهرس منتجاتنا الموحَّد (utils/missing_match.CatalogIndex):
-    # كلمات حرفية + كلمات بالهيكل العظمي (يلتقط اختلاف الإملاء العربي) + ماركة.
-    _catalog_idx = _CatalogIndex(our_df[_ncol].dropna().astype(str).tolist())
+    # فهرس منتجاتنا الغني: عناصر + فهرس مقلوب بالكلمة + فهرس بالماركة (للحجب الموسّع)
+    _our_items: list = []          # [{bare, brand_n, size}]
+    _inv: dict = {}                # كلمة دالّة → مجموعة فهارس عناصرنا
+    _brand_idx: dict = {}          # ماركة مطبَّعة → قائمة فهارس عناصرنا
+    for _onm in our_df[_ncol].dropna().astype(str):
+        _ob = _miss_bare(_onm)
+        if not _ob:
+            continue
+        _idx = len(_our_items)
+        # حجب بالماركة: نستخدم النسخة السريعة (المرحلة المباشرة) — قانونية ومتّسقة الطرفين
+        _br_n = _normalize(_brand_fast(_onm) or "")
+        _our_items.append({"bare": _ob, "brand_n": _br_n,
+                           "size": _extract_size(_onm), "raw": _onm})
+        for _t in _miss_toks(_ob):
+            _inv.setdefault(_t, set()).add(_idx)
+        if _br_n:
+            _brand_idx.setdefault(_br_n, []).append(_idx)
     # 2) دمج المرشّحين بالاسم المجرّد (إزالة تكرار المتاجر/الحجم/الصياغة)
     _cand: dict = {}
     for p in _prods:
@@ -1032,10 +1015,14 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             return "tester"
         return "retail"
 
-    # 3) طبقة تحقّق ضبابية موحّدة (utils/missing_match): حجب بالكلمات + الهيكل العظمي
-    #    (يلتقط النسخ الإملائية مثل كاشاريل↔كاشريل)، ثم تصنيف ثلاثي محافظ عبر classify()
-    #    والعتبات من config.py:
-    #      owned (≥82+حجم متوافق أو نسخة إملائية) ⇒ إخفاء | review (محتمل) ⇒ يبقى ظاهراً | green ⇒ مفقود مؤكد
+    # 3) طبقة تحقّق ضبابية: حجب موسّع (كلمات دالّة + ماركة) ثم تصنيف ثلاثي:
+    #    ≥82           = نملكه باسم مختلف ⇒ إخفاء (لا إيجابيات كاذبة)
+    #    65-82 + ماركة متطابقة + حجم متوافق = «محتمل موجود — مراجعة» (يبقى ظاهراً،
+    #                    يُحسم بـ Gemini أو يدوياً — لا نخسر مفقوداً حقيقياً)
+    #    غير ذلك       = مفقود مؤكد (green)
+    _CONFIRM    = _TH   # 82: عتبة «نملكه»
+    _REVIEW_MIN = 65    # عتبة «محتمل موجود»
+    _SIZE_TOL   = 8.0   # تسامح فرق الحجم (مل) لاعتبار منتجين نفس الحجم
     _owned = _review = 0
     rows = []
     for _bb, (p, _price) in _cand.items():
@@ -1046,17 +1033,43 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         # نفس المُطبِّع السريع المستخدم لكتالوجنا ⇒ ماركة قانونية متّسقة الطرفين
         _c_brand_n = _normalize(_brand_fast(_nm) or _brand_fast(str(p.get("brand", "") or "")) or "")
         _c_size = _extract_size(_nm)
-        # مطابقة محجوبة موحّدة (كلمات حرفية + هيكل عظمي + ماركة) ⇒ تلتقط النسخ الإملائية.
-        # best_match يُرجع (score, item, size_ok, skel_exact)؛ حارس الحجم يمنع وهم subset.
-        _best_sc, _best_it, _size_ok, _skel_exact, _sizematch_sc = _catalog_idx.best_match(
-            _bb, _c_brand_n, _c_size)
-        _brand_match = bool(_best_it and _c_brand_n and _best_it["brand_n"] == _c_brand_n)
-        _verdict = _classify_missing(_best_sc, _size_ok, _brand_match, _skel_exact, _sizematch_sc)
-        if _verdict == "owned":
+        # حجب موسّع: عناصرنا التي تشترك بكلمة دالّة OR بنفس الماركة
+        _cidx: set = set()
+        for _t in _miss_toks(_bb):
+            _b = _inv.get(_t)
+            if _b:
+                _cidx |= _b
+            if len(_cidx) > 200:
+                break
+        if _c_brand_n:
+            _cidx.update(_brand_idx.get(_c_brand_n, [])[:200])
+        # أفضل تطابق ضبابي ضمن المحجوبين
+        _best_sc = 0.0
+        _best_it = None
+        if _cidx:
+            _cidx_list = list(_cidx)
+            _bares = [_our_items[i]["bare"] for i in _cidx_list]
+            _m = _pr.extractOne(_bb, _bares, scorer=_fz.token_set_ratio)
+            if _m:
+                _best_sc = float(_m[1])
+                _best_it = _our_items[_cidx_list[_m[2]]]
+        # حارس الحجم: token_set_ratio يعطي 100% لأي اسم فرعي (subset) بعد تجريد
+        # الاسم، فيُخفي منتجات مختلفة من نفس الماركة. لذا لا نُخفي إلا بحجم متوافق.
+        _osz = _best_it["size"] if _best_it else 0
+        _size_ok = (not _c_size) or (not _osz) or abs(_c_size - _osz) <= _SIZE_TOL
+        # تأكيد صارم للإخفاء: تشابه عالٍ (≥82) + حجم متوافق ⇒ نملكه فعلاً
+        if _best_sc >= _CONFIRM and _size_ok:
             _owned += 1
-            continue  # نملكه (نفس الاسم/نسخة إملائية بحجم متوافق) ⇒ ليس مفقوداً
-        _is_review = (_verdict == "review")
-        if _is_review:
+            continue  # نملكه باسم مختلف ⇒ ليس مفقوداً
+        # المنطقة الرمادية ⇒ تبقى ظاهرة لحسم AI (لا إخفاء صامت لمفقود حقيقي):
+        #   • تشابه عالٍ لكن حجم مختلف (نسخة/حجم مختلف محتمل)، أو
+        #   • 65-82% بحجم متوافق — بشرط تطابق الماركة في الحالتين
+        _is_review = False
+        if (_best_it is not None and _c_brand_n
+                and _best_it["brand_n"] == _c_brand_n
+                and ((_best_sc >= _CONFIRM and not _size_ok)
+                     or (_REVIEW_MIN <= _best_sc < _CONFIRM and _size_ok))):
+            _is_review = True
             _review += 1
         _comp_list = p.get("competitors_list") or []
         # «المنافسون»: أسماء كل المتاجر التي تبيع هذا المنتج (بعد الدمج العالمي)
@@ -1083,9 +1096,8 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             # review = محتمل موجود (يحتاج تأكيد) | green = مفقود مؤكد
             "مستوى_الثقة":  "review" if _is_review else "green",
             "درجة_التشابه": round(_best_sc, 1),
-            # أقرب منتج لدينا — يُسجَّل لكل صف (حتى المؤكد مفقود) كي لا تُفقد العلاقة:
-            # تظهر في البطاقة «🔍 مشابه لدينا: X (٪)» فيراها المستخدم ويستفيد منها.
-            "منتج_مطابق_محتمل": (_best_it["raw"] if _best_it else ""),
+            # المنتج المرشّح لدينا (لقسم المراجعة + تحقّق Gemini)
+            "منتج_مطابق_محتمل": (_best_it["raw"] if (_is_review and _best_it) else ""),
             "حالة_المراجعة":  "بانتظار التحقق" if _is_review else "",
             "هو_تستر":      _item_type(_nm) == "tester",
             "نوع_السلعة":   _item_type(_nm),   # retail / tester / sample
@@ -4619,6 +4631,187 @@ elif page == "🔍 منتجات مفقودة":
         "has_results": bool(st.session_state.results),
         "has_missing_key": bool(st.session_state.results and "missing" in st.session_state.results),
     })
+    # ── 🤖 الاستخراج الذكي بـ AI (محرك جديد — يدمج: مطابقة + ماركات + تصنيفات + وصف) ──
+    with st.expander("🤖 استخراج ذكي بـ AI (مع ماركات + تصنيفات + وصف Mahwous)", expanded=False):
+        st.markdown(
+            "ارفع كتالوجك + ملفات المنافسين + ماركات/تصنيفات مهووس → "
+            "يستخرج المفقودات الحقيقية فقط (≥85%=موجود، 70-85%=AI verify، <70%=مفقود) "
+            "ويصدّر `new_products.xlsx` + `new_brands.csv` بصيغة سلة."
+        )
+        try:
+            from engines.missing_products_engine import build_missing_exports
+            import tempfile as _tmp
+            from pathlib import Path as _Path
+
+            _c1, _c2 = st.columns(2)
+            with _c1:
+                _smart_cat  = st.file_uploader("📦 كتالوج متجرنا", type=["xlsx","xls","csv"], key="smart_miss_cat")
+                _smart_br   = st.file_uploader("🏷️ ماركات مهووس", type=["csv","xlsx"], key="smart_miss_br")
+            with _c2:
+                _smart_cmp  = st.file_uploader("🏪 ملفات المنافسين (متعدد)", type=["csv","xlsx"],
+                                                accept_multiple_files=True, key="smart_miss_cmp")
+                _smart_cats = st.file_uploader("📁 تصنيفات مهووس", type=["csv","xlsx"], key="smart_miss_cats")
+
+            _o1, _o2 = st.columns(2)
+            _use_ai     = _o1.toggle("🤖 تفعيل AI", value=True, key="smart_miss_ai")
+            _gen_desc   = _o2.toggle("📝 توليد الوصف", value=True, key="smart_miss_desc")
+
+            if st.button("🚀 ابدأ الاستخراج الذكي", type="primary", key="smart_miss_run"):
+                if not all([_smart_cat, _smart_br, _smart_cats, _smart_cmp]):
+                    st.error("❌ ارفع جميع الملفات الأربعة.")
+                else:
+                    def _save(f):
+                        try:
+                            t = _tmp.NamedTemporaryFile(delete=False, suffix=_Path(f.name).suffix)
+                            t.write(f.read()); t.close(); return t.name
+                        except Exception as _sf_err:
+                            st.error(f"❌ فشل حفظ الملف {f.name}: {_sf_err}")
+                            return None
+                    with st.spinner("⚙️ جارٍ الفحص الذكي..."):
+                        try:
+                            _res = build_missing_exports(
+                                catalog_path=_save(_smart_cat),
+                                competitor_paths=[_save(f) for f in _smart_cmp],
+                                brands_path=_save(_smart_br),
+                                categories_path=_save(_smart_cats),
+                                use_ai=_use_ai,
+                                generate_descriptions=_gen_desc,
+                            )
+                        except Exception as _build_err:
+                            st.error(f"❌ فشل الاستخراج الذكي: {_build_err}")
+                            _res = None
+                    if _res:
+                        st.success(f"✅ {_res['products_count']} منتج | {_res['new_brands_count']} ماركة جديدة")
+                        _d1, _d2 = st.columns(2)
+                        with _d1:
+                            with open(_res["products_file"], "rb") as fh:
+                                st.download_button("📥 تحميل المنتجات الجديدة", fh.read(),
+                                    file_name=_Path(_res["products_file"]).name,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True, key="smart_dl_prod")
+                        with _d2:
+                            if _res["new_brands_file"]:
+                                with open(_res["new_brands_file"], "rb") as fh:
+                                    st.download_button("📥 تحميل الماركات الجديدة", fh.read(),
+                                        file_name=_Path(_res["new_brands_file"]).name,
+                                        mime="text/csv", use_container_width=True, key="smart_dl_br")
+        except Exception as _smart_e:
+            st.error(f"تعذّر تحميل المحرك الذكي: {_smart_e}")
+
+    # ── المستشار الذكي للمفقودات ─────────────────────────────────────────
+    with st.expander("🧠 المستشار الذكي للمفقودات (AI Expert)", expanded=False):
+        st.markdown("اسأل المستشار عن استراتيجية إضافة هذه المنتجات أو تحليل السوق لها:")
+        miss_query = st.text_input(
+            "سؤالك للمستشار (مثال: ما هي أكثر ماركة مطلوبة من هذه القائمة؟)",
+            key="miss_expert_q",
+        )
+        if st.button("💬 اسأل المستشار", key="ask_miss_expert"):
+            if not miss_query.strip():
+                st.warning("اكتب سؤالاً أولاً.")
+            else:
+                with st.spinner("المستشار يحلل القائمة..."):
+                    _sample_data = []
+                    if st.session_state.results and "missing" in st.session_state.results:
+                        _src_df = st.session_state.results["missing"]
+                        if _src_df is not None and not _src_df.empty:
+                            _sample_data = _src_df.head(50).to_dict("records")
+                    _prompt = (
+                        f"بناء على هذه المنتجات المفقودة: {str(_sample_data)[:3000]}\n"
+                        f"أجب على: {miss_query}"
+                    )
+                    _response = call_ai(_prompt, "missing")
+                    st.markdown(f'<div class="ai-box">{_html_mod.escape(str(_response["response"]))}</div>', unsafe_allow_html=True)
+
+    # ── 🧠 كشف ذكي من المخزن التراكمي (v31) ─────────────────────────────
+    with st.expander("🧠 كشف ذكي من المخزن التراكمي (16+ متجر)", expanded=False):
+        st.markdown(
+            "يبحث في **قاعدة بيانات المنافسين التراكمية** عن منتجات غير موجودة "
+            "عندنا — بالبصمة الذكية (بدون تكرار)."
+        )
+        try:
+            from engines.competitor_intelligence import CompetitorIntelligence
+            import os as _ci_os
+            _ci_db = _ci_os.path.join(_ci_os.environ.get("DATA_DIR", "data"), "pricing_v18.db")
+            _ci = CompetitorIntelligence(db_path=_ci_db)
+
+            # إحصائيات سريعة
+            _ci_stats = _ci.get_stats()
+            _ci_m1, _ci_m2, _ci_m3 = st.columns(3)
+            _ci_m1.metric("📦 منتجات المنافسين", f"{_ci_stats.get('total_products', 0):,}")
+            _ci_m2.metric("🏪 المتاجر", f"{_ci_stats.get('total_competitors', 0)}")
+            _ci_m3.metric("🆕 جديد (7 أيام)", f"{_ci_stats.get('new_7d', 0):,}")
+
+            # فلاتر
+            _ci_f1, _ci_f2 = st.columns(2)
+            with _ci_f1:
+                _ci_comps = ["الكل"] + (_ci.get_available_competitors() or [])
+                _ci_sel_comp = st.selectbox("🏪 المتجر", _ci_comps, key="ci_miss_comp")
+            with _ci_f2:
+                _ci_brands = ["الكل"] + (_ci.get_available_brands()[:50] or [])
+                _ci_sel_brand = st.selectbox("🏷️ الماركة", _ci_brands, key="ci_miss_brand")
+
+            _ci_filters = {}
+            if _ci_sel_comp != "الكل":
+                _ci_filters["competitor"] = _ci_sel_comp
+            if _ci_sel_brand != "الكل":
+                _ci_filters["brand"] = _ci_sel_brand
+
+            _ci_page = st.number_input("الصفحة", min_value=1, value=1, step=1, key="ci_miss_page")
+
+            our_df = st.session_state.get("our_df")
+            if our_df is not None and not our_df.empty:
+                if st.button("🔍 بحث عن المفقود من المخزن", key="ci_miss_search", type="primary"):
+                    with st.spinner("🧠 جاري تحليل البصمات..."):
+                        import time as _ci_time
+                        _ci_t0 = _ci_time.time()
+                        _ci_prods, _ci_total = _ci.find_missing_products(
+                            our_df, page=_ci_page - 1, per_page=20, filters=_ci_filters
+                        )
+                        _ci_elapsed = _ci_time.time() - _ci_t0
+                        st.session_state["_ci_missing_results"] = (_ci_prods, _ci_total, _ci_elapsed)
+
+                # عرض النتائج المحفوظة
+                _ci_cached = st.session_state.get("_ci_missing_results")
+                if _ci_cached:
+                    _ci_prods, _ci_total, _ci_elapsed = _ci_cached
+                    st.caption(f"❌ {_ci_total:,} منتج غير متوفر لدينا — ({_ci_elapsed:.1f}s)")
+
+                    if _ci_prods:
+                        for _ci_i, _ci_p in enumerate(_ci_prods):
+                            _ci_c1, _ci_c2, _ci_c3 = st.columns([3, 1, 1])
+                            with _ci_c1:
+                                _ci_name = _ci_p.get("product_name", "")
+                                _ci_brand = _ci_p.get("brand", "")
+                                st.markdown(f"**{_ci_name[:100]}**")
+                                _ci_parts = []
+                                if _ci_brand:
+                                    _ci_parts.append(f"🏷️ {_ci_brand}")
+                                _ci_parts.append(f"💰 أقل: {_ci_p.get('min_price', 0):,.0f} ر.س")
+                                _ci_parts.append(f"📊 عند {_ci_p.get('competitor_count', 1)} منافسين")
+                                _ci_parts.append(f"💵 المقترح: {_ci_p.get('suggested_price', 0):,.0f} ر.س")
+                                st.caption(" | ".join(_ci_parts))
+                            with _ci_c2:
+                                if st.button("🤖 تجهيز", key=f"ci_prep_{_ci_i}_{_ci_page}"):
+                                    _ci_prepared = _ci.prepare_for_make(_ci_p)
+                                    st.session_state[f"ci_prepared_{_ci_i}"] = _ci_prepared
+                                    st.success("✅")
+                            with _ci_c3:
+                                _ci_prep_data = st.session_state.get(f"ci_prepared_{_ci_i}")
+                                if _ci_prep_data:
+                                    if st.button("📤 Make", key=f"ci_send_{_ci_i}_{_ci_page}"):
+                                        try:
+                                            _ci_result = send_new_products([_ci_prep_data])
+                                            st.success("✅ تم الإرسال")
+                                        except Exception as _ci_e:
+                                            st.error(f"فشل: {_ci_e}")
+                            st.divider()
+                    else:
+                        st.success("🎉 كل منتجات المنافسين متوفرة لديك!")
+            else:
+                st.warning("⚠️ ارفع كتالوج منتجاتنا أولاً من لوحة التحكم")
+        except Exception as _ci_err:
+            st.error(f"تعذّر تحميل محرك الذكاء: {_ci_err}")
+
     st.caption(
         "العدد هنا = **عناوين فريدة** بعد إزالة التكرار والمطابقة مع كتالوجنا — وليس بالضرورة كل صفوف ملف المنافس."
     )
@@ -4632,14 +4825,6 @@ elif page == "🔍 منتجات مفقودة":
     if not isinstance(_res_now, dict):
         _res_now = {}
     _cur_miss = _res_now.get("missing")
-    # 🆕 كاش قرص أولاً: استعد المفقودات المحسوبة سابقاً فوراً (بلا حساب) كي تبقى
-    # ظاهرة عبر الجلسات وإعادة تشغيل الحاوية — تماماً كباقي الأقسام.
-    if not isinstance(_cur_miss, pd.DataFrame) or _cur_miss.empty:
-        _disk_miss = _load_missing_cache()
-        if isinstance(_disk_miss, pd.DataFrame) and not _disk_miss.empty:
-            _res_now["missing"] = _disk_miss
-            st.session_state.results = _res_now
-            _cur_miss = _disk_miss
     if not isinstance(_cur_miss, pd.DataFrame) or _cur_miss.empty:
         try:
             _last = get_last_job()
@@ -4647,7 +4832,6 @@ elif page == "🔍 منتجات مفقودة":
             _job_status_m = str((_last or {}).get("status", ""))
             if not _job_miss.empty:
                 _res_now["missing"] = _ensure_competitor_details(_job_miss)  # v33
-                _save_missing_cache(_res_now["missing"])  # 🆕 خزّن على القرص ليبقى
                 st.session_state.results = _res_now
                 st.info(
                     f"♻️ استُعيدت **{len(_job_miss):,}** منتجاً مفقوداً من آخر تحليل محفوظ "
@@ -4672,7 +4856,6 @@ elif page == "🔍 منتجات مفقودة":
                     st.session_state[_auto_key] = True
                     if isinstance(_computed, pd.DataFrame) and not _computed.empty:
                         _res_now["missing"] = _ensure_competitor_details(_computed)  # v33
-                        _save_missing_cache(_res_now["missing"])  # 🆕 خزّن على القرص ليبقى
                         st.session_state.results = _res_now
                         st.rerun()  # أعد الرسم ليعرضها قسم العرض أدناه مباشرة
                     else:
@@ -4684,7 +4867,6 @@ elif page == "🔍 منتجات مفقودة":
                 if st.button("🔄 إعادة حساب المفقودة من المخزن (108k+ منافس)",
                              key="miss_compute_now"):
                     st.session_state.pop(_auto_key, None)
-                    _clear_missing_cache()  # 🆕 امسح كاش القرص لإجبار حساب جديد
                     try:
                         _compute_missing_from_store.clear()
                     except Exception:
@@ -4766,23 +4948,20 @@ elif page == "🔍 منتجات مفقودة":
                     _est_val = pd.to_numeric(df[_pc], errors="coerce").sum()
                     break
 
-            # ── إحصاءات أساسية مبسّطة (3 مقاييس + زر تحقّق AI عند الحاجة) ──
-            c1, c2, c3, c4 = st.columns(4)
-            c1.metric("🟢 مفقود مؤكد", f"{_gc:,}",
-                      help="منتجات لا نملكها بأي اسم — جاهزة للإضافة")
-            # فصل «المؤكد» عن «المراجعة»: الإجمالي وحده كان يوهم بالتضخّم.
-            c2.metric("🔵 يحتاج مراجعة", f"{_revc:,}",
-                      help="محتمل أننا نملكها باسم/إملاء مختلف — تُحسم بزر «تحقّق AI» أو يدوياً قبل الإضافة (لا تُضاف كمؤكد)")
-            c3.metric("💰 قيمة تقديرية", f"{_est_val:,.0f} ر.س")
-            with c4:
-                if _revc > 0 and st.button(f"🤖 تحقّق AI ({_revc:,})", key="miss_ai_verify_btn",
+            c1, c2, c3, c4, c5, c6 = st.columns(6)
+            c1.metric("🟢 مفقود مؤكد", f"{_gc:,}")
+            c2.metric("🔵 محتمل موجود", f"{_revc:,}", help="65-82% — يُحسم بالذكاء الاصطناعي أو يدوياً")
+            c3.metric("🏷️ تستر", f"{has_tester:,}")
+            c4.metric("📦 إجمالي معروض", f"{total_miss:,}")
+            c5.metric("💰 قيمة تقديرية", f"{_est_val:,.0f} ر.س")
+            with c6:
+                if _revc > 0 and st.button("🤖 تحقّق AI من المراجعة", key="miss_ai_verify_btn",
                                            use_container_width=True,
                                            help="Gemini يفحص قسم «محتمل موجود»: المؤكد يُزال، والمرفوض يبقى مفقوداً"):
-                    with st.spinner(f"🤖 Gemini يفحص {_revc:,} منتجاً في المراجعة…"):
+                    with st.spinner(f"🤖 Gemini يفحص {_revc:,} منتجاً في المراجعة (تدوير المفاتيح)…"):
                         try:
                             _new_df, _conf_owned, _conf_miss = verify_review_bucket_with_ai(df)
                             st.session_state.results["missing"] = _new_df
-                            _save_missing_cache(_new_df)  # 🆕 حدّث كاش القرص بعد التحقق
                             st.session_state["_action_toast"] = (
                                 "success",
                                 f"✅ تحقّق AI: {_conf_owned:,} مؤكد امتلاكنا (أُزيل) · "
@@ -4791,6 +4970,22 @@ elif page == "🔍 منتجات مفقودة":
                         except Exception as _ai_err:
                             st.session_state["_action_toast"] = ("error", f"تعذّر تحقّق AI: {_ai_err}")
                     st.rerun()
+
+            # ═══ v33: مقاييس الأولوية ═══
+            _critical_count = 0
+            if "درجة_الأولوية" in df.columns:
+                _critical_count = int((pd.to_numeric(df["درجة_الأولوية"], errors="coerce").fillna(0) >= 80).sum())
+            _multi_comp = 0
+            if "تفاصيل_المنافسين" in df.columns:
+                _multi_comp = int(df["تفاصيل_المنافسين"].apply(
+                    lambda x: len(x) if isinstance(x, list) else 1
+                ).ge(3).sum())
+            elif "عدد_المنافسين" in df.columns:
+                _multi_comp = int((pd.to_numeric(df["عدد_المنافسين"], errors="coerce").fillna(1) >= 3).sum())
+            _pk1, _pk2, _pk3 = st.columns(3)
+            _pk1.metric("🔴 أولوية حرجة", f"{_critical_count:,}")
+            _pk2.metric("🏪 عند 3+ منافسين", f"{_multi_comp:,}")
+            _pk3.metric("📦 إجمالي", f"{total_miss:,}")
 
             # ── v31.11c: تصدير سريع للمنتجات المؤكدة الجاهزة للرفع ──
             if _gc > 0:
@@ -4835,6 +5030,32 @@ elif page == "🔍 منتجات مفقودة":
                             st.caption("❌ openpyxl غير متوفر")
 
 
+            # ── تحليل AI الأولويات ────────────────────────────────────────
+            with st.expander("🤖 تحليل AI — أولويات الإضافة", expanded=False):
+                if st.button("📡 تحليل الأولويات", key="ai_missing_section"):
+                    with st.spinner("🤖 AI يحلل أولويات الإضافة..."):
+                        _pure = df[df["نوع_متاح"].str.strip() == ""] if "نوع_متاح" in df.columns else df
+                        _brands = _pure["الماركة"].value_counts().head(10).to_dict() if "الماركة" in _pure.columns else {}
+                        _summary = " | ".join(f"{b}:{c}" for b,c in _brands.items()) if _brands else "غير محدد"
+                        _lines   = "\n".join(
+                            f"- {r.get('منتج_المنافس','')}: {safe_float(r.get('سعر_المنافس',0)):.0f}ر.س ({r.get('الماركة','')}) — {r.get('المنافس','')}"
+                            for _, r in _pure.head(20).iterrows())
+                        _prompt = (
+                            f"لديّ {len(_pure)} منتج مفقود فعلاً (بدون التستر/الأساسي المتاح).\n"
+                            f"توزيع الماركات: {_summary}\nعينة:\n{_lines}\n\n"
+                            "أعطني:\n1. ترتيب أولويات الإضافة (عالية/متوسطة/منخفضة) مع السبب\n"
+                            "2. أي الماركات الأكثر ربحية؟\n"
+                            "3. سعر مقترح (أقل من المنافس بـ5-10 ر.س)\n"
+                            "4. منتجات لا تستحق الإضافة — ولماذا؟"
+                        )
+                        r_ai = call_ai(_prompt, "missing")
+                        resp = r_ai["response"] if r_ai["success"] else "❌ فشل AI"
+                        # تنظيف JSON من المخرجات
+                        import re as _re
+                        resp = _re.sub(r'```json.*?```', '', resp, flags=_re.DOTALL)
+                        resp = _re.sub(r'```.*?```', '', resp, flags=_re.DOTALL)
+                        st.markdown(f'<div class="ai-box">{_html_mod.escape(str(resp))}</div>', unsafe_allow_html=True)
+
             # ── v33: فلاتر محسّنة ظاهرة ─────────────────────────────────
             opts = get_filter_options(df)
             st.markdown("---")
@@ -4867,9 +5088,8 @@ elif page == "🔍 منتجات مفقودة":
                     break
             with st.form(key="miss_filters_form", border=False):
                 search = st.text_input("🔎 بحث في الاسم/الماركة", key="miss_s", placeholder="اكتب للبحث...")
-                # صف 2: ماركة + منافس + نوع (أُزيل فلتر «التصنيف» المعطوب — كانت
-                # خياراته «🌸 عطور» لا تطابق قيم عمود تصنيف_المنتج فلا يُرجع نتائج)
-                _f3, _f4, _f5 = st.columns(3)
+                # صف 2: ماركة + منافس + نوع + تصنيف
+                _f3, _f4, _f5, _f6 = st.columns(4)
                 with _f3:
                     brand_f = st.selectbox("🏷️ الماركة", opts["brands"], key="miss_b")
                 with _f4:
@@ -4877,6 +5097,9 @@ elif page == "🔍 منتجات مفقودة":
                 with _f5:
                     variant_f = st.selectbox("📦 النوع",
                         ["الكل", "مفقود فعلاً", "يوجد تستر", "يوجد الأساسي"], key="miss_v")
+                with _f6:
+                    _cat_opts = ["الكل", "🌸 عطور", "🧴 عناية", "💄 تجميل", "📦 أخرى"]
+                    cat_f = st.selectbox("📋 التصنيف", _cat_opts, key="miss_cat")
 
                 # v33: فلتر عدد المنافسين
                 _max_comps = 10
@@ -4941,7 +5164,9 @@ elif page == "🔍 منتجات مفقودة":
                 _cv = _conf_map.get(conf_f, "")
                 if _cv:
                     filtered = filtered[filtered["مستوى_الثقة"] == _cv]
-            # (أُزيل فلتر التصنيف المعطوب)
+            # فلتر التصنيف
+            if cat_f != "الكل" and "تصنيف_المنتج" in filtered.columns:
+                filtered = filtered[filtered["تصنيف_المنتج"] == cat_f]
             # فلتر السعر
             if _p_range and _price_col and _price_col in filtered.columns:
                 _f_prices = pd.to_numeric(filtered[_price_col], errors="coerce").fillna(0)
@@ -5004,12 +5229,18 @@ elif page == "🔍 منتجات مفقودة":
             if _miss_chips:
                 st.markdown(_miss_chips, unsafe_allow_html=True)
 
-            # ── عداد النتائج ── (أُزيل نص توزيع الفئات الطويل — تنظيف الواجهة)
-            _fc1, _fc2 = st.columns(2)
+            # ── عداد النتائج + إحصائيات التصنيف ──
+            _fc1, _fc2, _fc3 = st.columns([2, 2, 6])
             _fc1.metric("📋 نتائج الفلتر", f"{len(filtered):,}")
             if _price_col and _price_col in filtered.columns:
                 _est_rev = pd.to_numeric(filtered[_price_col], errors="coerce").sum()
                 _fc2.metric("💰 قيمة تقديرية", f"{_est_rev:,.0f} ر.س")
+            # إحصائيات التصنيف
+            if "تصنيف_المنتج" in df.columns:
+                _cat_counts = df["تصنيف_المنتج"].value_counts()
+                _cat_parts = " • ".join(f"{k}: {v}" for k, v in _cat_counts.items())
+                with _fc3:
+                    st.caption(f"📊 التوزيع: {_cat_parts}")
 
             # ── تصدير جاهز للرفع → قالب سلة الشامل (الشرط 3) — مع فصل retail/تستر/عينة ──
             st.markdown("##### 📦 تصدير جاهز للرفع — قالب سلة الشامل (40 عمود)")
