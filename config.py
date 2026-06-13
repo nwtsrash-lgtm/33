@@ -120,6 +120,11 @@ HIGH_CONFIDENCE = 95
 REVIEW_THRESHOLD = 75
 PRICE_TOLERANCE = 5
 
+# عتبات كشف المنتجات المفقودة
+MISSING_CONFIRMED_THRESHOLD = 82
+MISSING_REVIEW_THRESHOLD = 70
+MISSING_BARRIER_THRESHOLD = 85
+
 # ══════════════════════════════════════════════════
 #  كلمات الاستبعاد والتصنيف
 # ══════════════════════════════════════════════════
