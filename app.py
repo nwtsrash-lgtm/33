@@ -299,6 +299,10 @@ try:
         init_db()
         init_db_v26()
         migrate_db_v26()  # v26.0 — ترحيل آمن (idempotent)
+        init_competitor_store()
+        # تحميل المنافسين تلقائياً من JSON عند أول تشغيل (ذاكرة جديدة)
+        from utils.db_manager import register_competitors_from_json
+        register_competitors_from_json()
         st.session_state["_db_ready"] = True
 except Exception as e:
     st.error(f"Database Initialization Error: {e}")
