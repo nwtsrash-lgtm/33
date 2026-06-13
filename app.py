@@ -824,6 +824,30 @@ def _miss_toks(bare: str) -> list:
     return [t for t in bare.split() if len(t) >= 4][:4]
 
 
+# هيكل عظمي عربي للحجب — يلتقط النسخ الإملائية المختلفة لنفس المنتج
+# (كاشريل↔كاشاريل، ديبتك↔ديبتيك، خنجرعمان↔خنجر عمان) التي يفوتها الحجب بالكلمات
+# الحرفية فتظهر كمفقودة وهي مملوكة. للحجب فقط — قرار الإخفاء يبقى على token_set + الحجم.
+_MISS_AR_WEAK = str.maketrans("", "", "اويهءأإآةىؤئ")
+
+
+def _ar_skeleton(tok: str) -> str:
+    """يزيل الحروف العربية الضعيفة المتغيّرة إملائياً من الكلمة (اللاتيني يبقى كما هو)."""
+    sk = str(tok).translate(_MISS_AR_WEAK)
+    return sk if len(sk) >= 2 else str(tok)
+
+
+def _skel_toks(bare: str) -> list:
+    """كلمات الحجب بالهيكل العظمي (≥3 أحرف بعد التجريد) — أعلى 6."""
+    _out = []
+    for _t in bare.split():
+        _sk = _ar_skeleton(_t)
+        if len(_sk) >= 3 and _sk not in _out:
+            _out.append(_sk)
+        if len(_out) >= 6:
+            break
+    return _out
+
+
 # ═══ v33: حماية التوافق الخلفي للمفقودات ═══
 def _ensure_competitor_details(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -950,6 +974,7 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     # فهرس منتجاتنا الغني: عناصر + فهرس مقلوب بالكلمة + فهرس بالماركة (للحجب الموسّع)
     _our_items: list = []          # [{bare, brand_n, size}]
     _inv: dict = {}                # كلمة دالّة → مجموعة فهارس عناصرنا
+    _skel_idx: dict = {}           # كلمة بالهيكل العظمي → فهارس (يلتقط اختلاف الإملاء)
     _brand_idx: dict = {}          # ماركة مطبَّعة → قائمة فهارس عناصرنا
     for _onm in our_df[_ncol].dropna().astype(str):
         _ob = _miss_bare(_onm)
@@ -962,6 +987,8 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
                            "size": _extract_size(_onm), "raw": _onm})
         for _t in _miss_toks(_ob):
             _inv.setdefault(_t, set()).add(_idx)
+        for _t in _skel_toks(_ob):
+            _skel_idx.setdefault(_t, set()).add(_idx)
         if _br_n:
             _brand_idx.setdefault(_br_n, []).append(_idx)
     # 2) دمج المرشّحين بالاسم المجرّد (إزالة تكرار المتاجر/الحجم/الصياغة)
@@ -1044,6 +1071,14 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             if _b:
                 _cidx |= _b
             if len(_cidx) > 200:
+                break
+        # حجب إضافي بالهيكل العظمي: يلتقط النسخ الإملائية (كاشريل↔كاشاريل) التي
+        # يفوتها الحجب الحرفي فتظهر كمفقودة وهي مملوكة. القرار يبقى على token_set + الحجم.
+        for _t in _skel_toks(_bb):
+            _b = _skel_idx.get(_t)
+            if _b:
+                _cidx |= _b
+            if len(_cidx) > 300:
                 break
         if _c_brand_n:
             _cidx.update(_brand_idx.get(_c_brand_n, [])[:200])
