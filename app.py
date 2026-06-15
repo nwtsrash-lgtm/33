@@ -5045,47 +5045,48 @@ elif page == "🔍 منتجات مفقودة":
                             st.session_state["_action_toast"] = ("error", f"تعذّر تحقّق AI: {_ai_err}")
                     st.rerun()
 
-            # ── v31.11c: تصدير سريع للمنتجات المؤكدة الجاهزة للرفع ──
+            # ── أداة تصدير بسيطة بهامش ربح (مطوية لتقليل الازدحام؛ الوظيفة محفوظة) ──
+            # التصدير الكامل لقالب سلة الشامل في «🚀 تجهيز سريع — المفقودات المؤكدة» أدناه.
             if _gc > 0:
-                st.markdown("---")
-                _exp_c1, _exp_c2, _exp_c3 = st.columns([2, 1, 1])
-                with _exp_c1:
-                    _margin = st.number_input(
-                        "هامش الربح %", min_value=0, max_value=100,
-                        value=15, step=5, key="miss_margin_pct"
-                    )
-                with _exp_c2:
-                    if st.button("📦 تجهيز للرفع", key="miss_prep_upload", type="primary"):
-                        with st.spinner("جاري تجهيز المنتجات..."):
-                            _upload_df = prepare_missing_for_upload(_clean_for_export(df), margin_pct=_margin)
-                            st.session_state["_miss_upload_ready"] = _upload_df
-                with _exp_c3:
-                    st.caption(f"🟢 {_gc} منتج مؤكد جاهز")
-
-                _upload_ready = st.session_state.get("_miss_upload_ready")
-                if isinstance(_upload_ready, pd.DataFrame) and not _upload_ready.empty:
-                    st.success(f"✅ تم تجهيز {len(_upload_ready)} منتج — جاهز للتحميل!")
-                    st.dataframe(_upload_ready, use_container_width=True, height=300)
-                    _dl1, _dl2 = st.columns(2)
-                    with _dl1:
-                        _csv_data = _upload_ready.to_csv(index=False, encoding="utf-8-sig")
-                        st.download_button(
-                            "📥 CSV (سلة)", data=_csv_data,
-                            file_name="mahwous_missing_upload.csv",
-                            mime="text/csv", use_container_width=True,
+                with st.expander("📦 تجهيز سريع بهامش ربح + تحميل CSV/Excel", expanded=False):
+                    _exp_c1, _exp_c2, _exp_c3 = st.columns([2, 1, 1])
+                    with _exp_c1:
+                        _margin = st.number_input(
+                            "هامش الربح %", min_value=0, max_value=100,
+                            value=15, step=5, key="miss_margin_pct"
                         )
-                    with _dl2:
-                        try:
-                            _xl_buf = io.BytesIO()
-                            _upload_ready.to_excel(_xl_buf, index=False, engine="openpyxl")
+                    with _exp_c2:
+                        if st.button("📦 تجهيز للرفع", key="miss_prep_upload", type="primary"):
+                            with st.spinner("جاري تجهيز المنتجات..."):
+                                _upload_df = prepare_missing_for_upload(_clean_for_export(df), margin_pct=_margin)
+                                st.session_state["_miss_upload_ready"] = _upload_df
+                    with _exp_c3:
+                        st.caption(f"🟢 {_gc} منتج مؤكد جاهز")
+
+                    _upload_ready = st.session_state.get("_miss_upload_ready")
+                    if isinstance(_upload_ready, pd.DataFrame) and not _upload_ready.empty:
+                        st.success(f"✅ تم تجهيز {len(_upload_ready)} منتج — جاهز للتحميل!")
+                        st.dataframe(_upload_ready, use_container_width=True, height=300)
+                        _dl1, _dl2 = st.columns(2)
+                        with _dl1:
+                            _csv_data = _upload_ready.to_csv(index=False, encoding="utf-8-sig")
                             st.download_button(
-                                "📥 Excel", data=_xl_buf.getvalue(),
-                                file_name="mahwous_missing_upload.xlsx",
-                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                                use_container_width=True,
+                                "📥 CSV (سلة)", data=_csv_data,
+                                file_name="mahwous_missing_upload.csv",
+                                mime="text/csv", use_container_width=True,
                             )
-                        except Exception:
-                            st.caption("❌ openpyxl غير متوفر")
+                        with _dl2:
+                            try:
+                                _xl_buf = io.BytesIO()
+                                _upload_ready.to_excel(_xl_buf, index=False, engine="openpyxl")
+                                st.download_button(
+                                    "📥 Excel", data=_xl_buf.getvalue(),
+                                    file_name="mahwous_missing_upload.xlsx",
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                                    use_container_width=True,
+                                )
+                            except Exception:
+                                st.caption("❌ openpyxl غير متوفر")
 
 
             # ── تحليل AI الأولويات ────────────────────────────────────────
