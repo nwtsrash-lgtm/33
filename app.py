@@ -6035,7 +6035,7 @@ elif page == "🔍 منتجات مفقودة":
                                     )
                                     if _verdict.decision == "DUPLICATE":
                                         # رحّل المكرر إلى « تحت المراجعة »
-                                        _hk = f"missing_{_nm}_{_i}"
+                                        _hk = f"missing_{_nm}"
                                         st.session_state.hidden_products.add(_hk)
                                         save_hidden_product(_hk, _nm, "moved_to_review_duplicate")
                                         log_decision(_nm, "missing", "review",
@@ -6086,7 +6086,9 @@ elif page == "🔍 منتجات مفقودة":
 
             for idx, row in page_df.iterrows():
                 name  = str(row.get("منتج_المنافس", ""))
-                _miss_key = f"missing_{name}_{idx}"
+                # مفتاح إخفاء مستقر بالاسم (لا موضعي): يبقى المنتج المُرسَل/المُتجاهَل
+                # مخفياً حتى بعد إعادة الحساب (idx يتغيّر، الاسم لا).
+                _miss_key = f"missing_{name}"
                 if _miss_key in st.session_state.hidden_products:
                     continue
 
@@ -6266,7 +6268,11 @@ elif page == "🔍 منتجات مفقودة":
                                                new_price=_send_price, comp_url=_miss_url_card)
                                 if _miss_url_card:
                                     _track_processed_missing_url(_miss_url_card)
-                                st.session_state.hidden_products.add(f"missing_{name}_{idx}")
+                                # مفتاح مستقر بالاسم + حفظ دائم: يبقى مخفياً عبر إعادة الحساب
+                                # وإعادة التشغيل حتى لو بلا رابط منافس (لا يعود للقسم).
+                                _mk_hide = f"missing_{name}"
+                                st.session_state.hidden_products.add(_mk_hide)
+                                save_hidden_product(_mk_hide, nm_ai, "sent_to_make")
                                 st.rerun()
                             else:
                                 st.error(f"❌ فشل الإرسال: {_r.get('message', 'خطأ غير معروف')}")
@@ -6315,7 +6321,10 @@ elif page == "🔍 منتجات مفقودة":
                                                new_price=_send_price, comp_url=_miss_url_card)
                                 if _miss_url_card:
                                     _track_processed_missing_url(_miss_url_card)
-                                st.session_state.hidden_products.add(f"missing_{name}_{idx}")
+                                # مفتاح مستقر بالاسم + حفظ دائم (لا يعود بعد الإرسال)
+                                _mk_hide = f"missing_{name}"
+                                st.session_state.hidden_products.add(_mk_hide)
+                                save_hidden_product(_mk_hide, nm_ai, "sent_to_make")
                                 st.rerun()
                             else:
                                 st.error(f"❌ فشل الإرسال: {_r.get('message', 'خطأ غير معروف')}")
@@ -6323,7 +6332,7 @@ elif page == "🔍 منتجات مفقودة":
                 with a_ign:
                     if st.button("🗑️ تجاهل", key=f"ign_{idx}", use_container_width=True):
                         log_decision(nm_ai,"missing","ignored","تجاهل",0,price,-price,comp)
-                        _ign = f"missing_{name}_{idx}"
+                        _ign = f"missing_{name}"
                         st.session_state.hidden_products.add(_ign)
                         save_hidden_product(_ign, nm_ai, "ignored")
                         save_processed(_ign, nm_ai, comp, "ignored",
