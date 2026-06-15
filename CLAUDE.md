@@ -19,17 +19,17 @@
 
 ## 🔧 حقائق تقنية (لا تُعِد اكتشافها — مكلف ووقت ضائع)
 - الكود في المجلد المتداخل `mahwous-scraper-32-master/`. **`app.py` ضخم (~8,600 سطر).** فيه توجيه الصفحات `if/elif page ==`.
-- **قاعدة بيانات واحدة: `data/pricing_v18.db` (~265MB)** — تحوي: `competitor_products_store` (~115K صف، 19 متجراً)، `our_catalog` (كتالوجنا)، `job_progress`، `hidden_products`، `processed_products`، `force_links`. المسار عبر `DATA_DIR` (Railway volume = `/data`). `utils/db_manager.py` يزامن GCS عند الاستيراد.
+- **قاعدة بيانات واحدة: `data/pricing_v18.db` (~265MB)** — تحوي: `competitor_products_store` (~130K صف، 23 متجراً — مُقاس 2026-06-15)، `comp_catalog` (كتالوج تراكمي ~130K)، `our_catalog` (كتالوجنا)، `job_progress`، `hidden_products`، `processed_products`، `force_links`. المسار عبر `DATA_DIR` (Railway volume = `/data`). `utils/db_manager.py` يزامن GCS عند الاستيراد.
 - كتالوجنا أيضاً في **`data/our_catalog_saved.csv` (~7,863 منتج)** — هذا ما يستخدمه قسم المفقودات (لا `our_catalog` في DB دائماً).
-- **التطبيع:** `engine.normalize_name` (280+ مرادف عربي↔إنجليزي). **`utils/missing_match.miss_bare` = المُطبِّع الجيد** (يزيل عطر/او دو بارفيوم/مل/للجنسين + هيكل عظمي للنسخ الإملائية كاشريل↔كاشاريل). **استخدم miss_bare دائماً للمطابقة** — لا `_norm_dup_text` ولا تطبيع ضعيف (يسبب إيجابيات كاذبة جماعية).
-- **مسار المفقودات الحيّ:** `app.py::_compute_missing_from_store` → مرشّحون من `engines/competitor_intelligence.py::CompetitorIntelligence.find_missing_products` ثم حجب بالكلمات+الهيكل العظمي ثم `utils/missing_match.classify` (ثلاثي: owned تُخفى / review تبقى ظاهرة / green مفقود مؤكد). العتبات في `config.py` (`MISSING_CONFIRMED_THRESHOLD=82`, `MISSING_REVIEW_THRESHOLD=70`, `MISSING_BARRIER_THRESHOLD=85`).
+- **التطبيع:** `engine.normalize_name` (280+ مرادف عربي↔إنجليزي). **`app.py::_miss_bare` (مضمّن inline، السطر ~819) = المُطبِّع الجيد** (يزيل عطر/او دو بارفيوم/مل/للجنسين؛ والهيكل العظمي للنسخ الإملائية كاشريل↔كاشاريل عبر `_ar_skeleton`/`_skel_toks`). **استخدم `_miss_bare` دائماً للمطابقة** — لا `_norm_dup_text` ولا تطبيع ضعيف (يسبب إيجابيات كاذبة جماعية). ملاحظة: `utils/missing_match.py` غير موجود على master (يعيش فقط على فرع `fix/missing-accuracy` المهجور — لا تجلبه).
+- **مسار المفقودات الحيّ:** `app.py::_compute_missing_from_store` → مرشّحون من `engines/competitor_intelligence.py::CompetitorIntelligence.find_missing_products` ثم حجب بالكلمات+الهيكل العظمي ثم **تصنيف ثلاثي مضمّن inline داخل `_compute_missing_from_store`** (owned تُخفى / review تبقى ظاهرة / green مفقود مؤكد). ⚠️ العتبات الحيّة **مثبّتة محلياً في الدالة** (`_TH=82`, `_REVIEW_MIN=65`) لا من `config.py`؛ ثوابت `config.py` (`MISSING_CONFIRMED_THRESHOLD=82`/`REVIEW=70`/`BARRIER=85`) **غير موصولة بالمسار الحيّ حالياً** (بند إصلاح المرحلة 2/3).
 - **تصدير سلة:** `utils/salla_shamel_export.py::export_to_salla_shamel` يُنتج **40 عمود مطابق لقالب سلة** + تجهيز مهووس (اسم/وصف HTML/ماركة/تصنيف هرمي/«منتج جاهز») + بوابة جودة. `verify_truly_missing` = تحقق عدم التكرار مقابل الكتالوج. الأساسي في الواجهة: زر **«🚀 تجهيز سريع — المؤكدة»**. قالب سلة الرسمي عند المستخدم: `Downloads/Salla Products Template (1).xlsx` (40 عمود + ورقة تصنيفات/أنواع/ماركات).
 - **المراقبة:** `observability/ledger.py` — فحص الثابت `ingested == confirmed+missing+rejected+...`. استخدمه للتأكد أن لا صفوف تُفقد صامتةً.
-- **الاختبارات:** `tests/test_missing_accuracy.py` · `tests/test_ledger_invariant.py` · `tests/baseline_missing.py` (قياس دقة المفقودات على البيانات الحقيقية).
+- **الاختبارات (على master):** `tests/test_ledger_invariant.py` فقط (9 اختبارات، تمرّ). لقياس دقة المفقودات على البيانات الحقيقية: أنشئ سكربت قياس مؤقتاً **خارج المستودع**، شغّله، ولا تُودِعه في git (تجنّب تلويث master وخطر النشر). ملاحظة: `tests/baseline_missing.py` و`tests/test_missing_accuracy.py` غير موجودَين على master (على فرع `fix/missing-accuracy` المهجور).
 
 ## ⚠️ دروس مؤلمة (لا تُكرّرها)
 - **نداء AI متزامن عند الإقلاع** (`_auto_resolve_review`) = تعليق/شاشة سوداء على Railway. AI **بزر يدوي فقط**، بحدّ أقصى للعدد لكل ضغطة، لا في مسار الرسم/الإقلاع.
-- **مطابقة token_set على أسماء بلا تطبيع جيد** = مئات المنتجات المختلفة تُصنّف «مكرر» (كلها ≈ «هوت بارفيوم للنساء» 89%). استخدم `miss_bare`.
+- **مطابقة token_set على أسماء بلا تطبيع جيد** = مئات المنتجات المختلفة تُصنّف «مكرر» (كلها ≈ «هوت بارفيوم للنساء» 89%). استخدم `_miss_bare`.
 - **تحميل DB كاملة في الذاكرة على Railway المحدود** = OOM. عالج بدفعات (chunks) + فهارس + cache. **هذا أكبر خطر عند حجم مئات الآلاف من المنتجات.**
 - **«الإرجاع الذكي»** كان يعيد المنتج المُعالَج لقسمه. مُطفأ افتراضياً عبر `_REEVAL_PROCESSED_ON_PRICE_DROP=False`.
 
