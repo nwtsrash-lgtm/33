@@ -304,25 +304,38 @@ class CompetitorIntelligence:
                 our_fingerprints.add(fp)
 
         # جلب منتجات المنافسين — إسقاط الأعمدة الـ6 المستخدمة فقط (لا SELECT *
-        # على 25 عمودًا/108K صف). الترقيم لا يمكن نقله إلى SQL لأن البصمة تُحسب
+        # على 25 عمودًا/130K صف). الترقيم لا يمكن نقله إلى SQL لأن البصمة تُحسب
         # في Python وتتطلب مسحًا كاملًا للتجميع، لكن إسقاط الأعمدة يقلّص الزمن جذريًا.
+        # H1: بثّ بالدفعات (fetchmany) بدل fetchall — لا نحتجز كل الصفوف الخام في
+        # الذاكرة دفعة واحدة (خطر OOM عند مئات الآلاف). نفس الترتيب والنتيجة تمامًا.
         where, params = self._build_where(filters)
         try:
             conn = self._get_conn()
-            rows = conn.execute(
+            cur = conn.execute(
                 "SELECT product_name, brand, category, image_url, price, competitor "
                 f"FROM competitor_products_store {where} "
                 f"{'AND' if where else 'WHERE'} price > 0",
                 params
-            ).fetchall()
-            conn.close()
+            )
         except Exception as e:
             log.error("find_missing: %s", e)
             return [], 0
 
+        def _stream_rows():
+            # يبثّ الصفوف 5000-دفعةً ويغلق الاتصال عند الانتهاء (أو عند التحرير)
+            try:
+                while True:
+                    batch = cur.fetchmany(5000)
+                    if not batch:
+                        break
+                    for _r in batch:
+                        yield _r
+            finally:
+                conn.close()
+
         # تجميع بالبصمة — فهرسة مباشرة للصف (أسرع من dict(row) لكل صف)
         missing_map = {}  # fingerprint → aggregated data
-        for row in rows:
+        for row in _stream_rows():
             _pn, _br, _cat, _img, _price_raw, _comp = (
                 row[0], row[1], row[2], row[3], row[4], row[5]
             )
