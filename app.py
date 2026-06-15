@@ -5528,8 +5528,11 @@ elif page == "🔍 منتجات مفقودة":
                                     if str(n).strip() and str(n).strip().lower() not in ("nan", "none")
                                 ]
 
-                            # Pre-build normalized catalog ONCE
-                            _our_norms = [_norm_dup_text(n) for n in our_prods] if our_prods else []
+                            # Pre-build normalized catalog ONCE — نستخدم _miss_bare الذي يزيل
+                            # الكلمات الشائعة (عطر/او دو بارفيوم/مل/للنساء...) ويُبقي الاسم المميِّز،
+                            # فلا يطابق token_set منتجات مختلفة على الكلمات المشتركة (إصلاح
+                            # الإيجابيات الكاذبة الجماعية: مئات المنتجات ≈ «هوت بارفيوم للنساء»).
+                            _our_norms = [_miss_bare(n) for n in our_prods] if our_prods else []
 
                             confirmed_skipped = 0
                             uncertain_skipped = 0
@@ -5548,7 +5551,7 @@ elif page == "🔍 منتجات مفقودة":
                                 p_name = str(row.get("منتج_المنافس", "")).strip()
                                 if not p_name:
                                     continue
-                                p_norm = _norm_dup_text(p_name)
+                                p_norm = _miss_bare(p_name)
 
                                 if not _our_norms or not _has_rapidfuzz:
                                     # No catalog or no rapidfuzz → treat as truly missing
