@@ -4801,7 +4801,8 @@ elif page == "🔍 منتجات مفقودة":
             _ci_m1, _ci_m2, _ci_m3 = st.columns(3)
             _ci_m1.metric("📦 منتجات المنافسين", f"{_ci_stats.get('total_products', 0):,}")
             _ci_m2.metric("🏪 المتاجر", f"{_ci_stats.get('total_competitors', 0)}")
-            _ci_m3.metric("🆕 جديد (7 أيام)", f"{_ci_stats.get('new_7d', 0):,}")
+            # «جديد 7 أيام» كان يَعُدّ كل المنتجات (first_seen_at غير مُعبّأ) فيُضلّل ⇒ استبدلناه بالماركات
+            _ci_m3.metric("🏷️ الماركات", f"{_ci_stats.get('total_brands', 0):,}")
 
             # فلاتر
             _ci_f1, _ci_f2 = st.columns(2)
@@ -5290,18 +5291,12 @@ elif page == "🔍 منتجات مفقودة":
             if _miss_chips:
                 st.markdown(_miss_chips, unsafe_allow_html=True)
 
-            # ── عداد النتائج + إحصائيات التصنيف ──
-            _fc1, _fc2, _fc3 = st.columns([2, 2, 6])
-            _fc1.metric("📋 نتائج الفلتر", f"{len(filtered):,}")
-            if _price_col and _price_col in filtered.columns:
-                _est_rev = pd.to_numeric(filtered[_price_col], errors="coerce").sum()
-                _fc2.metric("💰 قيمة تقديرية", f"{_est_rev:,.0f} ر.س")
-            # إحصائيات التصنيف
+            # ── عدّاد مختصر لنتائج الفلتر + توزيع التصنيفات مطوي (بدل الصف المكرر وجدار النص) ──
+            st.caption(f"📋 نتائج الفلتر الحالي: **{len(filtered):,}** منتج")
             if "تصنيف_المنتج" in df.columns:
-                _cat_counts = df["تصنيف_المنتج"].value_counts()
-                _cat_parts = " • ".join(f"{k}: {v}" for k, v in _cat_counts.items())
-                with _fc3:
-                    st.caption(f"📊 التوزيع: {_cat_parts}")
+                with st.expander("📊 توزيع التصنيفات", expanded=False):
+                    _cat_counts = df["تصنيف_المنتج"].value_counts()
+                    st.caption(" • ".join(f"{k}: {v}" for k, v in _cat_counts.items()))
 
             # ── تصدير جاهز للرفع → قالب سلة الشامل (الشرط 3) — مع فصل retail/تستر/عينة ──
             st.markdown("##### 📦 تصدير جاهز للرفع — قالب سلة الشامل (40 عمود)")
