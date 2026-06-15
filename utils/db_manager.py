@@ -289,8 +289,18 @@ def ensure_indexes() -> None:
     _composite_index_specs = [
         ("competitor_products_store", "idx_cps_comp_price", "competitor, price"),
     ]
-    # فهارس مكرّرة أُنشئت في نسخة سابقة — تُسقَط للتنظيف (آمن وidempotent).
-    _redundant_indexes = ("idx_cps_comp_norm", "idx_compcat_comp_norm")
+    # فهارس مكرّرة أُنشئت في نسخ سابقة — تُسقَط للتنظيف (آمن وidempotent).
+    # L2: 8 فهارس أحادية مكرّرة على competitor_products_store تُسقَط (نفس أعمدة
+    # فهارس مُبقاة): competitor/brand/price يغطّيها idx_cps_*2 (+ المركّب)،
+    # norm_name←idx_cps_norm2، first_seen←idx_cps_first_seen. الحذف لا يغيّر أي
+    # خطة استعلام (المخطِّط يختار فهرساً واحداً أصلاً) ويخفّف كلفة الإدخال.
+    _redundant_indexes = (
+        "idx_cps_comp_norm", "idx_compcat_comp_norm",
+        # ثلاثيات competitor/brand/price (نُبقي idx_cps_*2 + idx_cps_comp_price)
+        "idx_cps_competitor", "idx_cps_brand", "idx_cps_price",
+        # عائلة idx_ci_* كاملة (يغطّيها idx_cps_*2 / idx_cps_norm2 / idx_cps_first_seen)
+        "idx_ci_comp", "idx_ci_brand", "idx_ci_price", "idx_ci_norm", "idx_ci_first",
+    )
     try:
         conn = get_db()
         c = conn.cursor()
