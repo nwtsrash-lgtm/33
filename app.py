@@ -1185,9 +1185,20 @@ def verify_review_bucket_with_ai(missing_df, batch_size: int = 8, max_items: int
     from engines.engine import (_ai_batch, extract_size as _es,
                                 extract_type as _et, extract_gender as _eg)
     df = missing_df.copy()
+    # عناصر المراجعة أولاً، ثم «المؤكد مفقود» ذو «مشابه لدينا» وتشابه ≥55% (الأعلى أولاً)
+    # — لالتقاط «مملوك باسم آخر» (عربي↔إنجليزي) الذي تعجز المطابقة النصية عنه.
+    # السلامة: العنصر الأخضر يُزال فقط إن أكّد AI امتلاكه، وإلا يبقى ⇒ لا فقدان مفقود.
     _rev_idx = df.index[df["مستوى_الثقة"] == "review"].tolist()
-    if max_items:
-        _rev_idx = _rev_idx[:int(max_items)]
+    if "منتج_مطابق_محتمل" in df.columns and "درجة_التشابه" in df.columns:
+        _sim = pd.to_numeric(df["درجة_التشابه"], errors="coerce").fillna(0)
+        _gmask = ((df["مستوى_الثقة"] == "green")
+                  & (df["منتج_مطابق_محتمل"].astype(str).str.len() > 0)
+                  & (_sim >= 55))
+        _green_hi = _sim[_gmask].sort_values(ascending=False).index.tolist()
+        _rev_idx += [i for i in _green_hi if i not in _rev_idx]
+    # حدّ أمان لكل ضغطة (يمنع تعليق الواجهة على آلاف العناصر): افتراضي 150
+    _cap = int(max_items) if max_items else 150
+    _rev_idx = _rev_idx[:_cap]
     if not _rev_idx:
         return df, 0, 0
     _items = []
@@ -4999,10 +5010,10 @@ elif page == "🔍 منتجات مفقودة":
             c4.metric("📦 إجمالي معروض", f"{total_miss:,}")
             c5.metric("💰 قيمة تقديرية", f"{_est_val:,.0f} ر.س")
             with c6:
-                if _revc > 0 and st.button("🤖 تحقّق AI من المراجعة", key="miss_ai_verify_btn",
+                if (_revc > 0 or _gc > 0) and st.button("🤖 تحقّق AI (مراجعة + مشتبه امتلاكه)", key="miss_ai_verify_btn",
                                            use_container_width=True,
-                                           help="Gemini يفحص قسم «محتمل موجود»: المؤكد يُزال، والمرفوض يبقى مفقوداً"):
-                    with st.spinner(f"🤖 Gemini يفحص {_revc:,} منتجاً في المراجعة (تدوير المفاتيح)…"):
+                                           help="Gemini يفحص «محتمل موجود» + «المؤكد مفقود» المشابه لمنتجاتنا (≥55%) — يلتقط المملوك باسم آخر (عربي↔إنجليزي). حتى 150/ضغطة، كرّر للمزيد. المؤكد امتلاكه يُزال، والمرفوض يبقى مفقوداً."):
+                    with st.spinner("🤖 Gemini يفحص حتى 150 منتجاً (مراجعة + مشتبه امتلاكه)…"):
                         try:
                             _new_df, _conf_owned, _conf_miss = verify_review_bucket_with_ai(df)
                             st.session_state.results["missing"] = _new_df
