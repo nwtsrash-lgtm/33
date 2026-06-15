@@ -435,6 +435,12 @@ if _nav_apply and _nav_apply in SECTIONS:
 # ════════════════════════════════════════════════
 #  دوال المعالجة — يجب تعريفها قبل استخدامها
 # ════════════════════════════════════════════════
+# «الإرجاع الذكي»: إعادة منتج مُعالَج (مُرسَل لـ Make) إلى قسمه السابق عند انخفاض سعر
+# المنافس تحت آخر سعر أرسلتَه. مطفأ افتراضياً (طلب المستخدم): المُعالَج يبقى في «تمت
+# المعالجة» ولا يعود. فعّله (True) فقط إن أردت إعادة التقييم التلقائي عند هبوط المنافس.
+_REEVAL_PROCESSED_ON_PRICE_DROP = False
+
+
 def _split_results(df):
     """تقسيم نتائج التحليل على الأقسام بأمان تام."""
     if df is None or not isinstance(df, pd.DataFrame) or df.empty:
@@ -459,7 +465,8 @@ def _split_results(df):
     # O(N) via set lookup + pandas vectorized isin/merge — no row-level loops.
     _price_map = st.session_state.get("_processed_price_map", {})
     _proc_skus = st.session_state.get("processed_price_skus", set())
-    if _price_map and _proc_skus and "معرف_المنتج" in work.columns and "سعر_المنافس" in work.columns:
+    if (_REEVAL_PROCESSED_ON_PRICE_DROP and _price_map and _proc_skus
+            and "معرف_المنتج" in work.columns and "سعر_المنافس" in work.columns):
         _pid_col = work["معرف_المنتج"].astype(str).str.strip()
         _is_processed = _pid_col.isin(_proc_skus)
         if _is_processed.any():
