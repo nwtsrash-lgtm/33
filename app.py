@@ -5298,57 +5298,60 @@ elif page == "🔍 منتجات مفقودة":
                     _cat_counts = df["تصنيف_المنتج"].value_counts()
                     st.caption(" • ".join(f"{k}: {v}" for k, v in _cat_counts.items()))
 
-            # ── تصدير جاهز للرفع → قالب سلة الشامل (الشرط 3) — مع فصل retail/تستر/عينة ──
-            st.markdown("##### 📦 تصدير جاهز للرفع — قالب سلة الشامل (40 عمود)")
-            # تصنيف نوع السلعة (retail/tester/sample) — يُحسب من المخزن أو fallback من الاسم
-            if "نوع_السلعة" in filtered.columns:
-                _itype = filtered["نوع_السلعة"].fillna("retail").astype(str)
-            else:
-                _nm_s = filtered.get("منتج_المنافس", pd.Series([""] * len(filtered))).astype(str)
-                _itype = pd.Series(
-                    [("sample" if (("عينة" in n) or ("عينه" in n) or ("sample" in n.lower())
-                                   or ("ديكانت" in n) or ("مينياتشر" in n) or ("تقسيم" in n))
-                      else "tester" if (("تستر" in n) or ("tester" in n.lower()))
-                      else "retail") for n in _nm_s],
-                    index=filtered.index,
-                )
-            _n_retail = int((_itype == "retail").sum())
-            _n_tester = int((_itype == "tester").sum())
-            _n_sample = int((_itype == "sample").sum())
-            _ic1, _ic2, _ic3 = st.columns(3)
-            _ic1.metric("🛍️ مفقود حقيقي (retail)", f"{_n_retail:,}")
-            _ic2.metric("🧪 تستر", f"{_n_tester:,}")
-            _ic3.metric("💧 عينة/ديكانت", f"{_n_sample:,}")
-            # العينات تُستبعد دائماً من ملف الإضافة؛ التستر خيار (الافتراضي: مُضمَّن — قرار المالك)
-            _inc_tester = st.toggle("🧪 تضمين التستر في ملف الإضافة", value=True, key="miss_exp_inc_tester")
-            st.caption("💧 العينات/الديكانت مُستبعَدة دائماً (ليست منتجات للبيع كجديد).")
-            _exp_types = ["retail"] + (["tester"] if _inc_tester else [])
-            _export_src = filtered[_itype.isin(_exp_types)]
-            _exp_d1, _exp_d2 = st.columns([1, 1])
-            with _exp_d1:
-                if st.button(f"⚙️ توليد ملف سلة ({len(_export_src):,} منتج)",
-                             key="miss_direct_salla_gen", use_container_width=True):
-                    with st.spinner(f"⚙️ جارٍ بناء ملف سلة لـ {len(_export_src):,} منتج "
-                                     "(اسم + ماركة + تصنيف + حجم + صورة + سعر مقترح + وصف)…"):
-                        try:
-                            _xb_salla = export_to_salla_shamel(
-                                _clean_for_export(_export_src), st.session_state.get("analysis_df"),
-                                verify_missing=False,
-                                export_mode=st.session_state.get("salla_export_mode", "safe"),
-                            )
-                            st.session_state["_miss_direct_salla_xlsx"] = _xb_salla
-                            st.success("✅ تم بناء الملف — اضغط تحميل.")
-                        except Exception as _e_salla:
-                            st.error(f"❌ تعذّر بناء ملف سلة: {_e_salla}")
-            with _exp_d2:
-                _xb_ready = st.session_state.get("_miss_direct_salla_xlsx")
-                if _xb_ready:
-                    st.download_button(
-                        "📥 تحميل سلة الشامل (xlsx)", data=_xb_ready,
-                        file_name="mahwous_missing_salla.xlsx",
-                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-                        type="primary", use_container_width=True, key="miss_direct_salla_dl",
+            # ── تصدير متقدم (مطوي): قالب سلة مع خيار التستر — الأساسي «🚀 تجهيز سريع» أدناه ──
+            with st.expander("📦 تصدير متقدم — قالب سلة الشامل (مع خيار التستر)", expanded=False):
+                st.caption("للتصدير المعتاد استخدم «🚀 تجهيز سريع — المؤكدة» أدناه (يطابق القالب + يتحقق من عدم التكرار).")
+                # تصنيف نوع السلعة (retail/tester/sample) — يُحسب من المخزن أو fallback من الاسم
+                if "نوع_السلعة" in filtered.columns:
+                    _itype = filtered["نوع_السلعة"].fillna("retail").astype(str)
+                else:
+                    _nm_s = filtered.get("منتج_المنافس", pd.Series([""] * len(filtered))).astype(str)
+                    _itype = pd.Series(
+                        [("sample" if (("عينة" in n) or ("عينه" in n) or ("sample" in n.lower())
+                                       or ("ديكانت" in n) or ("مينياتشر" in n) or ("تقسيم" in n))
+                          else "tester" if (("تستر" in n) or ("tester" in n.lower()))
+                          else "retail") for n in _nm_s],
+                        index=filtered.index,
                     )
+                _n_retail = int((_itype == "retail").sum())
+                _n_tester = int((_itype == "tester").sum())
+                _n_sample = int((_itype == "sample").sum())
+                _ic1, _ic2, _ic3 = st.columns(3)
+                _ic1.metric("🛍️ مفقود حقيقي (retail)", f"{_n_retail:,}")
+                _ic2.metric("🧪 تستر", f"{_n_tester:,}")
+                _ic3.metric("💧 عينة/ديكانت", f"{_n_sample:,}")
+                _inc_tester = st.toggle("🧪 تضمين التستر في ملف الإضافة", value=True, key="miss_exp_inc_tester")
+                st.caption("💧 العينات/الديكانت مُستبعَدة دائماً (ليست منتجات للبيع كجديد).")
+                _exp_types = ["retail"] + (["tester"] if _inc_tester else [])
+                _export_src = filtered[_itype.isin(_exp_types)]
+                _exp_d1, _exp_d2 = st.columns([1, 1])
+                with _exp_d1:
+                    if st.button(f"⚙️ توليد ملف سلة ({len(_export_src):,} منتج)",
+                                 key="miss_direct_salla_gen", use_container_width=True):
+                        with st.spinner(f"⚙️ جارٍ بناء ملف سلة لـ {len(_export_src):,} منتج "
+                                         "(اسم + ماركة + تصنيف + حجم + صورة + سعر مقترح + وصف)…"):
+                            try:
+                                _salla_cat = st.session_state.get("our_df")
+                                if not isinstance(_salla_cat, pd.DataFrame) or _salla_cat.empty:
+                                    _salla_cat = st.session_state.get("analysis_df")
+                                _xb_salla = export_to_salla_shamel(
+                                    _clean_for_export(_export_src), _salla_cat,
+                                    verify_missing=True,  # تحقق من عدم التكرار مقابل الكتالوج
+                                    export_mode=st.session_state.get("salla_export_mode", "safe"),
+                                )
+                                st.session_state["_miss_direct_salla_xlsx"] = _xb_salla
+                                st.success("✅ تم بناء الملف — اضغط تحميل.")
+                            except Exception as _e_salla:
+                                st.error(f"❌ تعذّر بناء ملف سلة: {_e_salla}")
+                with _exp_d2:
+                    _xb_ready = st.session_state.get("_miss_direct_salla_xlsx")
+                    if _xb_ready:
+                        st.download_button(
+                            "📥 تحميل سلة الشامل (xlsx)", data=_xb_ready,
+                            file_name="mahwous_missing_salla.xlsx",
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                            type="primary", use_container_width=True, key="miss_direct_salla_dl",
+                        )
 
             # ── أزرار تحديد جماعي ──
             _sel_c1, _sel_c2, _sel_c3, _sel_c4 = st.columns([2, 2, 2, 4])
