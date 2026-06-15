@@ -5010,17 +5010,29 @@ elif page == "🔍 منتجات مفقودة":
                     _est_val = pd.to_numeric(df[_pc], errors="coerce").sum()
                     break
 
+            # ── إحصاءات موحّدة في صفّ واحد (دُمج صفّان؛ أُزيل «إجمالي» المكرر و«تستر» قليل القيمة) ──
+            _critical_count = 0
+            if "درجة_الأولوية" in df.columns:
+                _critical_count = int((pd.to_numeric(df["درجة_الأولوية"], errors="coerce").fillna(0) >= 80).sum())
+            _multi_comp = 0
+            if "تفاصيل_المنافسين" in df.columns:
+                _multi_comp = int(df["تفاصيل_المنافسين"].apply(
+                    lambda x: len(x) if isinstance(x, list) else 1
+                ).ge(3).sum())
+            elif "عدد_المنافسين" in df.columns:
+                _multi_comp = int((pd.to_numeric(df["عدد_المنافسين"], errors="coerce").fillna(1) >= 3).sum())
+
             c1, c2, c3, c4, c5, c6 = st.columns(6)
             c1.metric("🟢 مفقود مؤكد", f"{_gc:,}")
             c2.metric("🔵 محتمل موجود", f"{_revc:,}", help="65-82% — يُحسم بالذكاء الاصطناعي أو يدوياً")
-            c3.metric("🏷️ تستر", f"{has_tester:,}")
-            c4.metric("📦 إجمالي معروض", f"{total_miss:,}")
+            c3.metric("🔴 أولوية حرجة", f"{_critical_count:,}")
+            c4.metric("🏪 عند 3+ منافسين", f"{_multi_comp:,}")
             c5.metric("💰 قيمة تقديرية", f"{_est_val:,.0f} ر.س")
             with c6:
-                if (_revc > 0 or _gc > 0) and st.button("🤖 تحقّق AI (مراجعة + مشتبه امتلاكه)", key="miss_ai_verify_btn",
+                if (_revc > 0 or _gc > 0) and st.button("🤖 تحقّق AI", key="miss_ai_verify_btn",
                                            use_container_width=True,
-                                           help="Gemini يفحص «محتمل موجود» + «المؤكد مفقود» المشابه لمنتجاتنا (≥55%) — يلتقط المملوك باسم آخر (عربي↔إنجليزي). حتى 150/ضغطة، كرّر للمزيد. المؤكد امتلاكه يُزال، والمرفوض يبقى مفقوداً."):
-                    with st.spinner("🤖 Gemini يفحص حتى 150 منتجاً (مراجعة + مشتبه امتلاكه)…"):
+                                           help="Gemini يفحص «محتمل موجود» + «المؤكد مفقود» المشابه (≥55%) — يلتقط المملوك باسم آخر (عربي↔إنجليزي). حتى 150/ضغطة. المؤكد امتلاكه يُزال، والمرفوض يبقى مفقوداً."):
+                    with st.spinner("🤖 Gemini يفحص حتى 150 منتجاً…"):
                         try:
                             _new_df, _conf_owned, _conf_miss = verify_review_bucket_with_ai(df)
                             st.session_state.results["missing"] = _new_df
@@ -5032,22 +5044,6 @@ elif page == "🔍 منتجات مفقودة":
                         except Exception as _ai_err:
                             st.session_state["_action_toast"] = ("error", f"تعذّر تحقّق AI: {_ai_err}")
                     st.rerun()
-
-            # ═══ v33: مقاييس الأولوية ═══
-            _critical_count = 0
-            if "درجة_الأولوية" in df.columns:
-                _critical_count = int((pd.to_numeric(df["درجة_الأولوية"], errors="coerce").fillna(0) >= 80).sum())
-            _multi_comp = 0
-            if "تفاصيل_المنافسين" in df.columns:
-                _multi_comp = int(df["تفاصيل_المنافسين"].apply(
-                    lambda x: len(x) if isinstance(x, list) else 1
-                ).ge(3).sum())
-            elif "عدد_المنافسين" in df.columns:
-                _multi_comp = int((pd.to_numeric(df["عدد_المنافسين"], errors="coerce").fillna(1) >= 3).sum())
-            _pk1, _pk2, _pk3 = st.columns(3)
-            _pk1.metric("🔴 أولوية حرجة", f"{_critical_count:,}")
-            _pk2.metric("🏪 عند 3+ منافسين", f"{_multi_comp:,}")
-            _pk3.metric("📦 إجمالي", f"{total_miss:,}")
 
             # ── v31.11c: تصدير سريع للمنتجات المؤكدة الجاهزة للرفع ──
             if _gc > 0:
