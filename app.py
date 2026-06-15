@@ -5424,7 +5424,11 @@ elif page == "🔍 منتجات مفقودة":
             # عرض أزرار التحميل إذا جاهز
             if st.session_state.get("_v33_ready_green_df") is not None:
                 _ready_g = st.session_state["_v33_ready_green_df"]
-                _our_df_ref = st.session_state.get("analysis_df")
+                # التحقق من عدم التكرار مقابل الكتالوج الكامل (our_df = 7,863 منتج)، لا
+                # analysis_df الجزئي — لضمان عدم تصدير منتج موجود لدينا بأي اسم.
+                _our_df_ref = st.session_state.get("our_df")
+                if not isinstance(_our_df_ref, pd.DataFrame) or _our_df_ref.empty:
+                    _our_df_ref = st.session_state.get("analysis_df")
                 _export_mode = st.session_state.get("salla_export_mode", "safe")
                 _dl1, _dl2, _dl3 = st.columns(3)
                 with _dl1:
