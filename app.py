@@ -5145,53 +5145,55 @@ elif page == "🔍 منتجات مفقودة":
                 if _pc in df.columns:
                     _price_col = _pc
                     break
-            with st.form(key="miss_filters_form", border=False):
-                search = st.text_input("🔎 بحث في الاسم/الماركة", key="miss_s", placeholder="اكتب للبحث...")
-                # صف 2: ماركة + منافس + نوع + تصنيف
-                _f3, _f4, _f5, _f6 = st.columns(4)
-                with _f3:
-                    brand_f = st.selectbox("🏷️ الماركة", opts["brands"], key="miss_b")
-                with _f4:
-                    comp_f = st.selectbox("🏪 المنافس", opts["competitors"], key="miss_c")
-                with _f5:
-                    variant_f = st.selectbox("📦 النوع",
-                        ["الكل", "مفقود فعلاً", "يوجد تستر", "يوجد الأساسي"], key="miss_v")
-                with _f6:
-                    _cat_opts = ["الكل", "🌸 عطور", "🧴 عناية", "💄 تجميل", "📦 أخرى"]
-                    cat_f = st.selectbox("📋 التصنيف", _cat_opts, key="miss_cat")
+            # فلاتر متقدمة مطوية (تقليل الازدحام؛ أزرار الثقة والترتيب تبقى ظاهرة أعلاه)
+            with st.expander("🔎 فلاتر متقدمة (بحث · ماركة · منافس · نوع · سعر)", expanded=False):
+                with st.form(key="miss_filters_form", border=False):
+                    search = st.text_input("🔎 بحث في الاسم/الماركة", key="miss_s", placeholder="اكتب للبحث...")
+                    # صف 2: ماركة + منافس + نوع + تصنيف
+                    _f3, _f4, _f5, _f6 = st.columns(4)
+                    with _f3:
+                        brand_f = st.selectbox("🏷️ الماركة", opts["brands"], key="miss_b")
+                    with _f4:
+                        comp_f = st.selectbox("🏪 المنافس", opts["competitors"], key="miss_c")
+                    with _f5:
+                        variant_f = st.selectbox("📦 النوع",
+                            ["الكل", "مفقود فعلاً", "يوجد تستر", "يوجد الأساسي"], key="miss_v")
+                    with _f6:
+                        _cat_opts = ["الكل", "🌸 عطور", "🧴 عناية", "💄 تجميل", "📦 أخرى"]
+                        cat_f = st.selectbox("📋 التصنيف", _cat_opts, key="miss_cat")
 
-                # v33: فلتر عدد المنافسين
-                _max_comps = 10
-                if "تفاصيل_المنافسين" in df.columns:
-                    _max_comps = max(int(df["تفاصيل_المنافسين"].apply(
-                        lambda x: len(x) if isinstance(x, list) else 1
-                    ).max()), 2)
-                elif "عدد_المنافسين" in df.columns:
-                    _max_comps = max(int(pd.to_numeric(df["عدد_المنافسين"], errors="coerce").max() or 2), 2)
-                _min_comp = st.slider(
-                    "🏪 الحد الأدنى لعدد المنافسين",
-                    min_value=1, max_value=min(_max_comps, 15), value=1,
-                    key="miss_min_comp_v33",
-                )
+                    # v33: فلتر عدد المنافسين
+                    _max_comps = 10
+                    if "تفاصيل_المنافسين" in df.columns:
+                        _max_comps = max(int(df["تفاصيل_المنافسين"].apply(
+                            lambda x: len(x) if isinstance(x, list) else 1
+                        ).max()), 2)
+                    elif "عدد_المنافسين" in df.columns:
+                        _max_comps = max(int(pd.to_numeric(df["عدد_المنافسين"], errors="coerce").max() or 2), 2)
+                    _min_comp = st.slider(
+                        "🏪 الحد الأدنى لعدد المنافسين",
+                        min_value=1, max_value=min(_max_comps, 15), value=1,
+                        key="miss_min_comp_v33",
+                    )
 
-                # صف 3: نطاق السعر (slider)
-                if _price_col:
-                    _prices = pd.to_numeric(df[_price_col], errors="coerce").dropna()
-                    if not _prices.empty:
-                        _pmin = int(max(0, _prices.min()))
-                        _pmax = int(min(99999, _prices.max()))
-                        if _pmax > _pmin:
-                            _p_range = st.slider(
-                                "💰 نطاق السعر (ر.س)", _pmin, _pmax, (_pmin, _pmax),
-                                key="miss_price_range"
-                            )
+                    # صف 3: نطاق السعر (slider)
+                    if _price_col:
+                        _prices = pd.to_numeric(df[_price_col], errors="coerce").dropna()
+                        if not _prices.empty:
+                            _pmin = int(max(0, _prices.min()))
+                            _pmax = int(min(99999, _prices.max()))
+                            if _pmax > _pmin:
+                                _p_range = st.slider(
+                                    "💰 نطاق السعر (ر.س)", _pmin, _pmax, (_pmin, _pmax),
+                                    key="miss_price_range"
+                                )
+                            else:
+                                _p_range = (_pmin, _pmax)
                         else:
-                            _p_range = (_pmin, _pmax)
+                            _p_range = None
                     else:
                         _p_range = None
-                else:
-                    _p_range = None
-                st.form_submit_button("🔍 تطبيق الفلاتر", use_container_width=True, type="primary")
+                    st.form_submit_button("🔍 تطبيق الفلاتر", use_container_width=True, type="primary")
 
             st.markdown("---")
 
