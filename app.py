@@ -934,6 +934,9 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     """
     import os as _cm_os
     from rapidfuzz import fuzz as _fz, process as _pr
+    # علَم فشل الحساب — يُصفَّر مع كل تنفيذ فعلي (cache-miss) ويُضبط في except أدناه،
+    # ليُميّز موقعُ العرض بين «لا مفقود» الحقيقي و«فشل الحساب» (لا عرض فارغ صامت).
+    st.session_state["_missing_compute_failed"] = ""
     _TH = 82  # عتبة «نملكه» (مثبتة بتحقّق عيّنة يدوي: 0 إيجابيات كاذبة)
     # 1) كتالوجنا: من الجلسة إن وُجد، وإلا من الملف المحفوظ
     our_df = st.session_state.get("our_df")
@@ -956,7 +959,10 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         from engines.competitor_intelligence import CompetitorIntelligence as _CIm
         _ci = _CIm(db_path=_db)
         _prods, _total = _ci.find_missing_products(our_df, page=0, per_page=1000000)
-    except Exception:
+    except Exception as e:
+        import logging
+        logging.error("فشل حساب المفقودات من المخزن: %s", e, exc_info=True)
+        st.session_state["_missing_compute_failed"] = str(e)
         return pd.DataFrame()
     if not _prods:
         return pd.DataFrame()
@@ -4921,6 +4927,13 @@ elif page == "🔍 منتجات مفقودة":
                         _res_now["missing"] = _ensure_competitor_details(_computed)  # v33
                         st.session_state.results = _res_now
                         st.rerun()  # أعد الرسم ليعرضها قسم العرض أدناه مباشرة
+                    elif st.session_state.get("_missing_compute_failed"):
+                        st.warning(
+                            "⚠️ تعذّر حساب المفقودات (خطأ مؤقت): "
+                            f"{st.session_state['_missing_compute_failed']}. "
+                            "لم نعرض قائمة فارغة كأنها «لا مفقود» — أعد المحاولة بزر "
+                            "«🔄 إعادة حساب المفقودة» أدناه، أو راجع السجلّات."
+                        )
                     else:
                         st.info(
                             "لم يُعثر على منتجات مفقودة في المخزن التراكمي "
