@@ -1139,7 +1139,9 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             "مستوى_الثقة":  "review" if _is_review else "green",
             "درجة_التشابه": round(_best_sc, 1),
             # المنتج المرشّح لدينا (لقسم المراجعة + تحقّق Gemini)
-            "منتج_مطابق_محتمل": (_best_it["raw"] if (_is_review and _best_it) else ""),
+            # أقرب منتج لدينا — يُخزَّن لكل صف (مؤكد + مراجعة) لا للمراجعة فقط، كي يراه
+            # المستخدم في البطاقة («🔍 مشابه لدينا: X ٪») ويفرز يدوياً بثقة، ويتيح تحقّق AI.
+            "منتج_مطابق_محتمل": (_best_it["raw"] if _best_it else ""),
             "حالة_المراجعة":  "بانتظار التحقق" if _is_review else "",
             "هو_تستر":      _item_type(_nm) == "tester",
             "نوع_السلعة":   _item_type(_nm),   # retail / tester / sample
