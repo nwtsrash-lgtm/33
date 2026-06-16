@@ -85,6 +85,7 @@ SECTIONS = [
     "🟢 سعر أقل",
     "✅ موافق عليها",
     "🔍 منتجات مفقودة",
+    "⚠️ تحت المراجعة",
     "⚪ المستبعدة",
     "✅ تمت المعالجة",
     "🕷️ كشط المنافسين",
@@ -6259,6 +6260,28 @@ elif page == "🔍 منتجات مفقودة":
             st.success("✅ لا توجد منتجات مفقودة!")
     else:
         st.info("ارفع الملفات أولاً")
+
+# ════════════════════════════════════════════════
+#  تحت المراجعة — مطابقات غير مؤكدة (60–85%) — لا إسقاط صامت
+# ════════════════════════════════════════════════
+elif page == "⚠️ تحت المراجعة":
+    st.header("⚠️ منتجات تحت المراجعة")
+    st.caption("مطابقات غير مؤكّدة (نسبة 60–85%) — راجِعها يدوياً أو بالذكاء الاصطناعي قبل أي قرار سعري")
+    db_log("review", "view")
+    if st.session_state.results and "review" in st.session_state.results:
+        df = st.session_state.results["review"]
+        _review_total = len(df) if isinstance(df, pd.DataFrame) else 0  # FIX: Transparency & Reversibility
+        if isinstance(df, pd.DataFrame) and not df.empty and "معرف_المنتج" in df.columns:
+            _proc_price = {str(x) for x in st.session_state.get("processed_price_skus", set())}
+            df = df[~df["معرف_المنتج"].astype(str).isin(_proc_price)]  # FIX: Smart Workflow & AI Tracking
+        _show_transparency_counter(_review_total, len(df) if isinstance(df, pd.DataFrame) else 0)  # FIX: Transparency & Reversibility
+        if isinstance(df, pd.DataFrame) and not df.empty:
+            st.info(f"⚠️ {len(df)} منتج بحاجة لمراجعة — التطابق غير مؤكّد")
+            render_pro_table_v32(df, "review", "review")
+        else:
+            st.success("✅ لا توجد منتجات تحت المراجعة")
+    else:
+        st.info("شغّل تحليلاً أولاً لعرض منتجات المراجعة.")
 
 # ════════════════════════════════════════════════
 #  المستبعدة — منتجاتنا التي لم تُصنَّف في سلة سعرية (الشرط 9)
