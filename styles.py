@@ -1020,8 +1020,8 @@ def _build_single_card_html(row: dict) -> str:
 <div class="v32-arena" dir="rtl">
 <div class="v32-side v32-our" style="border-color:{our_border};background:{our_bg}">
 <span class="v32-side-label v32-our-label">منتجنا</span>
-{_img_tag(our_img, 112, 112, our_border, 12, fit="contain")}
 <div class="v32-side-name" title="{our_name_arena}">{our_name_arena or '—'}</div>
+{_img_tag(our_img, 112, 112, our_border, 12, fit="contain")}
 <div class="v32-big-price" style="color:#818CF8">{our_price:,.0f}</div>
 <div class="v32-currency">ر.س</div>
 </div>
@@ -1032,8 +1032,8 @@ def _build_single_card_html(row: dict) -> str:
 </div>
 <div class="v32-side v32-comp" style="border-color:{comp_border};background:{comp_bg}">
 <span class="v32-side-label v32-comp-label">{comp_store}</span>
-{_img_tag(comp_img, 112, 112, comp_border, 12, fit="contain")}
 <div class="v32-side-name" title="{comp_name_arena}">{comp_name_arena or '—'}</div>
+{_img_tag(comp_img, 112, 112, comp_border, 12, fit="contain")}
 <div class="v32-big-price" style="color:{vs_color if diff > 0 else '#94A3B8'}">{comp_price:,.0f}</div>
 <div class="v32-currency">ر.س</div>
 </div>
@@ -1256,7 +1256,7 @@ _V32_CSS = """<style>
 .v32-sku{color:#64748B}
 .v32-arena{display:flex;align-items:stretch;gap:0;padding:14px 14px;background:rgba(2,6,23,.3)}
 .v32-side{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 10px;border:2px solid;border-radius:12px;transition:all .2s ease;position:relative}
-.v32-side-name{font-size:.72rem;color:#94A3B8;text-align:center;line-height:1.3;width:100%;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:2.6em}
+.v32-side-name{font-size:.72rem;font-weight:600;color:#CBD5E1;text-align:center;line-height:1.3;width:100%;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em;max-height:2.6em}
 .v32-side-label{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:.65rem;font-weight:700;padding:1px 10px;border-radius:10px;white-space:nowrap}
 .v32-our-label{background:#3730A3;color:#C7D2FE}
 .v32-comp-label{background:#1F2937;color:#94A3B8;max-width:90%;overflow:hidden;text-overflow:ellipsis}
