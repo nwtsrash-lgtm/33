@@ -120,10 +120,13 @@ HIGH_CONFIDENCE = 95
 REVIEW_THRESHOLD = 75
 PRICE_TOLERANCE = 5
 
-# عتبات كشف المنتجات المفقودة
+# عتبات كشف المنتجات المفقودة (المصدر الوحيد — موصولة بالمسار الحيّ في
+# app.py::_compute_missing_from_store). القيم مضبوطة يدوياً بتحقّق عيّنة:
+#   CONFIRMED=82 «نملكه» (إخفاء) · REVIEW=65 «محتمل موجود» (يبقى ظاهراً للمراجعة).
+# M1: صُحّحت REVIEW 70→65 لتطابق القيمة الحيّة المُتحقَّقة قبل الوصل (لا تغيير سلوك).
 MISSING_CONFIRMED_THRESHOLD = 82
-MISSING_REVIEW_THRESHOLD = 70
-MISSING_BARRIER_THRESHOLD = 85
+MISSING_REVIEW_THRESHOLD = 65
+MISSING_BARRIER_THRESHOLD = 85  # غير مستخدم حالياً (لا مفهوم حاجز في المسار الحيّ)
 
 # ══════════════════════════════════════════════════
 #  كلمات الاستبعاد والتصنيف
