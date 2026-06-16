@@ -385,10 +385,10 @@ class MahallyScraper:
                 pass  # العمود موجود مسبقاً
 
         # إضافة فهارس لتسريع البحث
+        # L2/C3: أُزيل خلق idx_cps_competitor/brand/price — مكرّرة (يملكها
+        # db_manager.ensure_indexes عبر idx_cps_*2 + المركّب) فكانت تُعيد التكرار
+        # بعد إسقاط C1. نُبقي first_seen/rating (الفهرسان القانونيان لعموديهما).
         for idx_sql in [
-            "CREATE INDEX IF NOT EXISTS idx_cps_competitor ON competitor_products_store(competitor)",
-            "CREATE INDEX IF NOT EXISTS idx_cps_brand ON competitor_products_store(brand)",
-            "CREATE INDEX IF NOT EXISTS idx_cps_price ON competitor_products_store(price)",
             "CREATE INDEX IF NOT EXISTS idx_cps_first_seen ON competitor_products_store(first_seen_at)",
             "CREATE INDEX IF NOT EXISTS idx_cps_rating ON competitor_products_store(rating_count)",
         ]:
