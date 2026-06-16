@@ -2252,7 +2252,10 @@ def render_pro_table_v32(_df, prefix, *args, **kwargs):
 
 def render_pro_table(
         df, prefix, section_type="update", show_search=True,
-        compact_cards=False, inline_filters=True, _use_v32_cards=False):
+        compact_cards=False, inline_filters=False, _use_v32_cards=False):
+    # المرحلة 5/C5: الافتراضي صار «مطوي» (inline_filters=False) ليتّسق مع قسم
+    # المفقودات — كل الأقسام السعرية (🔴/🟢/✅/⚠️) تطوي فلاترها في expander.
+    # (الفرع المكشوف inline لم يَعُد يُستدعى من أي قسم؛ مرشّح للحذف في المرحلة 6.)
     """
     جدول احترافي بصري مع:
     - فلاتر ذكية (مكشوفة في شبكة أو داخل Expander)
