@@ -345,7 +345,10 @@ class CompetitorIntelligence:
                     "image_url": r.get("image_url", ""),
                     "min_price": float(r.get("price", 0) or 0),
                     "max_price": float(r.get("price", 0) or 0),
-                    "prices": [float(r.get("price", 0) or 0)],
+                    # متوسط تدريجي (مجموع+عدّاد) بدل قائمة كل الأسعار — يحذف ~عشرات
+                    # الآلاف من كائنات القوائم عند الحجم. المتوسط مطابق بايت-ببايت.
+                    "price_sum": float(r.get("price", 0) or 0),
+                    "price_count": 1,
                     "competitors": [r.get("competitor", "")],
                     "competitor_count": 1,
                     "suggested_price": max(0, float(r.get("price", 0) or 0) - 1),
@@ -353,7 +356,8 @@ class CompetitorIntelligence:
             else:
                 m = missing_map[fp]
                 price = float(r.get("price", 0) or 0)
-                m["prices"].append(price)
+                m["price_sum"] += price
+                m["price_count"] += 1
                 if price < m["min_price"]:
                     m["min_price"] = price
                 if price > m["max_price"]:
@@ -369,10 +373,11 @@ class CompetitorIntelligence:
         # تحويل لقائمة مرتبة
         missing_list = sorted(missing_map.values(), key=lambda x: x["competitor_count"], reverse=True)
 
-        # حساب المتوسط
+        # حساب المتوسط من المجموع/العدّاد التدريجي (نفس قيمة sum(prices)/len تماماً)
         for m in missing_list:
-            prices = m.pop("prices", [])
-            m["avg_price"] = round(sum(prices) / len(prices), 2) if prices else 0
+            _psum = m.pop("price_sum", 0.0)
+            _pcnt = m.pop("price_count", 0)
+            m["avg_price"] = round(_psum / _pcnt, 2) if _pcnt else 0
             m["competitors_list"] = ", ".join(m.pop("competitors", []))
 
         total = len(missing_list)
