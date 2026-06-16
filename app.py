@@ -3531,17 +3531,12 @@ if page == "📊 لوحة التحكم":
         </div>
         """, unsafe_allow_html=True)
 
-        # ── v33: KPI أداء التحليل (شريط HTML واحد بدل st.metric) ──
+        # ── v33: لوحة إحصائيات أداء التحليل (شريط HTML واحد) ──
+        # ملاحظة (المرحلة 5/C1): أُزيل render_kpi_row المكرر — render_precise_stats
+        # أدناه مجموعةٌ فائقة منه (total/raise/lower/approved/missing + excluded/
+        # review/منافسين/متاجر/نِسَب)، فعرضُهما معاً كان تكراراً لنفس الأرقام.
         _analysis_total_dash = len(r.get("all", pd.DataFrame())) if isinstance(r.get("all", pd.DataFrame()), pd.DataFrame) else 0
         if _analysis_total_dash:
-            render_kpi_row({
-                "total":    _analysis_total_dash,
-                "raise":    _raise_h,
-                "lower":    _lower_h,
-                "approved": _approved_h,
-                "missing":  _missing_h,
-            })
-
             # ── الشرط 10: لوحة إحصائيات دقيقة (أرقام حقيقية لا تقديرية) ──
             _excluded_h = len(r.get("excluded", pd.DataFrame()))
             _review_h   = len(r.get("review", pd.DataFrame()))
