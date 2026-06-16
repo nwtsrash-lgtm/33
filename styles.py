@@ -1153,27 +1153,47 @@ def render_precise_stats(stats: dict) -> None:
 
 
 def render_excluded_table(rows) -> None:
-    """جدول HTML خفيف للمنتجات المستبعدة مع عمود «لماذا» (السبب)."""
+    """المرحلة 5/V5: بطاقات مصغّرة للمنتجات المستبعدة (بدل الجدول) — صورة +
+    اسم + ماركة + سعر + سبب الاستبعاد. منتجاتنا فقط (لا منافس يُقارَن).
+    الصورة تُقرأ من «صورة_منتجنا»/مفاتيح بديلة، وإلا أيقونة 🧴."""
     import streamlit as st
     rows = list(rows or [])
     if not rows:
         st.info("لا توجد منتجات مستبعدة")
         return
-    body = []
+    cards = []
     for r in rows:
-        price = _safe_float(r.get("السعر", 0))
-        body.append(
-            "<tr>"
-            f'<td class="ct-name">{_html_escape(str(r.get("المنتج", "—"))[:70])}</td>'
-            f'<td class="ct-store">{_html_escape(str(r.get("الماركة", "—"))[:24])}</td>'
-            f'<td class="ct-num">{price:,.0f}</td>'
-            f'<td class="ex-reason">{_html_escape(str(r.get("__reason__", "—"))[:70])}</td>'
-            "</tr>"
+        price  = _safe_float(r.get("السعر", 0))
+        name   = _html_escape(str(r.get("المنتج", "—"))[:80])
+        brand  = str(r.get("الماركة", "") or "").strip()
+        reason = _html_escape(str(r.get("__reason__", "—"))[:90])
+        _img = ""
+        for _k in ("صورة_منتجنا", "الصورة", "صورة_المنتج", "صورة", "image_url", "image"):
+            _v = str(r.get(_k, "") or "").strip()
+            if _v.startswith("http"):
+                _img = _v
+                break
+        img_html = (
+            _img_tag(_img, 56, 56, "#334155", 10, fit="contain")
+            if _img else '<div class="exc-card-ph">🧴</div>'
+        )
+        brand_chip = (
+            f'<span class="exc-card-brand">🏷️ {_html_escape(brand[:24])}</span>'
+            if brand and brand.lower() not in ("nan", "none", "") else ""
+        )
+        cards.append(
+            '<div class="exc-card">'
+            f'<div class="exc-card-top">{img_html}'
+            f'<div class="exc-card-info">'
+            f'<div class="exc-card-name" title="{name}">{name}</div>'
+            f'<div class="exc-card-meta">{brand_chip}'
+            f'<span class="exc-card-price">{price:,.0f} ر.س</span>'
+            f'</div></div></div>'
+            f'<div class="exc-card-reason">⚪ {reason}</div>'
+            '</div>'
         )
     st.markdown(
-        '<div class="ct-wrap" dir="rtl"><table class="changes-table">'
-        "<thead><tr><th>المنتج</th><th>الماركة</th><th>سعرنا</th><th>لماذا استُبعد</th></tr></thead>"
-        "<tbody>" + "".join(body) + "</tbody></table></div>",
+        f'<div dir="rtl" class="exc-grid">{"".join(cards)}</div>',
         unsafe_allow_html=True,
     )
 
@@ -1309,5 +1329,15 @@ _V32_CSS = """<style>
 .ps-num{font-size:1.4rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
 .ps-lbl{font-size:.68rem;color:#64748B;margin-top:2px}
 @media (max-width:900px){.ps-grid{grid-template-columns:repeat(2,1fr)}}
-@media (max-width:640px){.v32-arena{flex-direction:column;gap:12px}.v32-vs-col{flex-direction:row;padding:8px 0;min-width:unset}.v32-big-price{font-size:1.4rem}.miss-card-inner{flex-direction:column}}
+.exc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px;margin:6px 0}
+.exc-card{background:#0D1117;border:1px solid #1F2937;border-right:3px solid #94A3B8;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.exc-card-top{display:flex;gap:10px;align-items:center}
+.exc-card-ph{width:56px;height:56px;border-radius:10px;background:#111827;border:1px solid #1F2937;display:flex;align-items:center;justify-content:center;font-size:24px;flex-shrink:0}
+.exc-card-info{flex:1;min-width:0}
+.exc-card-name{font-size:.82rem;font-weight:700;color:#E2E8F0;line-height:1.35;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.exc-card-meta{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-top:4px}
+.exc-card-brand{font-size:.68rem;color:#818CF8;background:rgba(99,102,241,.1);padding:1px 7px;border-radius:4px}
+.exc-card-price{font-size:.85rem;font-weight:800;color:#94A3B8}
+.exc-card-reason{font-size:.7rem;color:#94A3B8;background:rgba(148,163,184,.08);border-radius:8px;padding:6px 10px;line-height:1.4}
+@media (max-width:640px){.v32-arena{flex-direction:column;gap:12px}.v32-vs-col{flex-direction:row;padding:8px 0;min-width:unset}.v32-big-price{font-size:1.4rem}.miss-card-inner{flex-direction:column}.exc-grid{grid-template-columns:1fr}}
 </style>"""
