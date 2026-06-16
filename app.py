@@ -6366,7 +6366,23 @@ elif page == "⚪ المستبعدة":
 
         # ⚡ 25 بدل 50/صفحة: قسم المستبعدة كان يرسم 50 صفاً دفعة واحدة
         _es, _ee, _ep = render_pagination(len(_filtered_exc), 25, "exc")
-        render_excluded_table(_filtered_exc.iloc[_es:_ee].to_dict("records"))
+        # المرحلة 5/V5b: إثراء صفوف الصفحة بصورة منتجنا (تُشتقّ من الأعمدة عبر
+        # row_media_urls_from_analysis) لتعرضها البطاقات المصغّرة بدل الأيقونة
+        # البديلة. على صفوف الصفحة فقط (≤25) فالكلفة ضئيلة.
+        _exc_page = _filtered_exc.iloc[_es:_ee]
+        _exc_records = []
+        for _i in range(len(_exc_page)):
+            _row_s = _exc_page.iloc[_i]
+            _rec = _row_s.to_dict()
+            if not str(_rec.get("صورة_منتجنا", "") or "").strip():
+                try:
+                    _oimg, _ = row_media_urls_from_analysis(_row_s)
+                    if _oimg:
+                        _rec["صورة_منتجنا"] = _oimg
+                except Exception:
+                    pass
+            _exc_records.append(_rec)
+        render_excluded_table(_exc_records)
 
         # المرحلة 5/P4: ترقيم تفاعلي أسفل المستبعدة — متزامن مع الأعلى عبر
         # state_key="exc"؛ مفاتيح أزرار مستقلّة "exc_btm"؛ page_size=25 مطابق.
