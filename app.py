@@ -3946,6 +3946,18 @@ if page == "📊 لوحة التحكم":
             "حد الصفوف للمعالجة (0=كل)", 0, step=500, key="dash_max_rows"
         )
 
+    # M3/C2: فحص الثابت عند الطلب — مُطفأ افتراضياً. عند التفعيل يعمل التحليل
+    # متزامناً ويُسجّل كل صف منافس في سجلّ ثابت بقاعدة مؤقّتة منفصلة (لا تمسّ
+    # data/pricing_v18.db) ثم يعرض تقرير المحاسبة، وتُحذف القاعدة المؤقّتة بعده.
+    st.checkbox(
+        "🔍 فحص الثابت (ledger) — تدقيق محاسبي لهذا التحليل",
+        value=False,
+        key="dash_ledger_audit",
+        help="يتحقّق أن: مُدخَل == مطابق + مفقود + مرفوض + إعادة + أخطاء "
+             "(لا صفّ يضيع صامتاً). يفرض التشغيل المتزامن ويكتب في قاعدة "
+             "مؤقّتة منفصلة فلا تنمو قاعدة الإنتاج.",
+    )
+
     _copt3a, _copt3b = st.columns(2)
     with _copt3a:
         # FIX: Relaxed Constraints — منع فقدان النتائج السابقة بإجبار الدمج التراكمي دائماً.
@@ -4295,7 +4307,8 @@ if page == "📊 لوحة التحكم":
                 _validate_uploaded_catalog(our_df, "ملف منتجاتنا")
                 for _cfn, _cdf in comp_dfs.items():
                     _validate_uploaded_catalog(_cdf, f"ملف منافس: {_cfn}")
-                if bg_mode:
+                # M3/C2: تفعيل فحص الثابت يفرض المسار المتزامن (السجلّ يُعرَض فوراً).
+                if bg_mode and not st.session_state.get("dash_ledger_audit", False):
                     _dash_acc = bool(st.session_state.get("dash_accumulate_results", True))
                     _prev_ar = None
                     _prev_mr = None
@@ -4333,7 +4346,51 @@ if page == "📊 لوحة التحكم":
                     def upd(p, _r=None):
                         prog.progress(min(float(p), 0.99), f"{float(p)*100:.0f}%")
 
-                    df_all, audit_stats = run_full_analysis(our_df, comp_dfs, progress_callback=upd)
+                    # M3/C2: فحص الثابت عند الطلب — نحقن سجلّاً حقيقياً فقط عند
+                    # التفعيل، في قاعدة مؤقّتة منفصلة (لا تمسّ قاعدة الإنتاج).
+                    # السجلّ مراقبة-فقط؛ لا يغيّر نتيجة التحليل (df_all مطابق).
+                    _ledger = None
+                    _ledger_dir = None
+                    if st.session_state.get("dash_ledger_audit", False):
+                        try:
+                            import os as _os_led, tempfile as _tf_led
+                            from observability.ledger import CompetitorIntakeLedger as _CIL
+                            _ledger_dir = _tf_led.mkdtemp(prefix="ledger_audit_")
+                            _ledger = _CIL(_os_led.path.join(_ledger_dir, "audit.db"))
+                        except Exception as _le:
+                            _ledger = None
+                            st.caption(f"⚠️ تعذّر تهيئة سجلّ الثابت: {_le}")
+
+                    df_all, audit_stats = run_full_analysis(
+                        our_df, comp_dfs, progress_callback=upd, ledger=_ledger,
+                    )
+
+                    if _ledger is not None:
+                        _lr = (audit_stats or {}).get("ledger") or {}
+                        _lc = _lr.get("counters") or {}
+                        _swept = int(audit_stats.get("ledger_sweep_count") or 0)
+                        if _lr.get("invariant_ok"):
+                            st.success(
+                                f"🔍 فحص الثابت متوازن ✅ — مُدخَل={_lc.get('ingested',0):,} = "
+                                f"مطابق={_lc.get('confirmed',0):,} + مفقود={_lc.get('missing',0):,} + "
+                                f"مرفوض_هيكلي={_lc.get('rejected_structural',0):,} + "
+                                f"مرفوض_ثقة={_lc.get('rejected_low_confidence',0):,} + "
+                                f"إعادة={_lc.get('retry_pending',0):,} + أخطاء={_lc.get('errors',0):,} "
+                                f"· كُنِس {_swept:,}."
+                            )
+                        else:
+                            st.error(
+                                f"🚨 فحص الثابت غير متوازن — فرق={_lr.get('invariant_delta','?')} · "
+                                f"مُدخَل={_lc.get('ingested',0):,} · مُعلّق={_lc.get('inflight_ingested',0):,} · "
+                                f"العدادات: {_lc}"
+                            )
+                        try:
+                            _ledger.close()
+                        finally:
+                            if _ledger_dir:
+                                import shutil as _sh_led
+                                _sh_led.rmtree(_ledger_dir, ignore_errors=True)
+
                     _prev_adf = st.session_state.get("analysis_df")
                     # الشرط 11: وسم الجديد/تغيّر السعر قبل الدمج (مقارنةً بالسابق)
                     df_all = _annotate_change_status(df_all, _prev_adf)
