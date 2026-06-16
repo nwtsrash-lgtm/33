@@ -6321,6 +6321,12 @@ elif page == "⚪ المستبعدة":
         _es, _ee, _ep = render_pagination(len(_filtered_exc), 25, "exc")
         render_excluded_table(_filtered_exc.iloc[_es:_ee].to_dict("records"))
 
+        # المرحلة 5/P4: ترقيم تفاعلي أسفل المستبعدة — متزامن مع الأعلى عبر
+        # state_key="exc"؛ مفاتيح أزرار مستقلّة "exc_btm"؛ page_size=25 مطابق.
+        if len(_filtered_exc) > 25:
+            st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+            render_pagination(len(_filtered_exc), 25, "exc_btm", state_key="exc")
+
         # تصدير CSV للمستبعدة (مع السبب)
         _exc_csv = _filtered_exc[[c for c in ["المنتج", "الماركة", "السعر", "النوع", "الحجم", "__reason__"]
                                   if c in _filtered_exc.columns]].rename(
