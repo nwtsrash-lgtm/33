@@ -2414,29 +2414,30 @@ def render_pro_table(
     # ── شريط الأدوات ───────────────────────────
     # المرحلة 5/C7a: أُزيل زر «🤖 AI جماعي (أول 20)» المرئي دائماً — مكرر مع
     # تحقق AI للبطاقة (داخل «⋯ أدوات») ومع نصيحة AI الاستراتيجية (expander
-    # القسم المطوي). بقي مدخلان منخفضا الازدحام، وشريط الأدوات 5→4 أعمدة.
-    ac1, ac2, ac4, ac5 = st.columns(4)
-    with ac1:
+    # القسم المطوي). بقي مدخلان منخفضا الازدحام.
+    # المرحلة 5/C7b: دُمج تصديرا Excel/CSV في زرّ «📥 تصدير» واحد (popover)
+    # بدل زرّين مرئيَّين؛ نفس البيانات المُنظَّفة لكليهما. الشريط 4→3 أعمدة.
+    ac_exp, ac4, ac5 = st.columns(3)
+    with ac_exp:
         _exdf = filtered.copy()
-        if "جميع المنافسين" in _exdf.columns: _exdf = _exdf.drop(columns=["جميع المنافسين"])
-        if "جميع_المنافسين" in _exdf.columns: _exdf = _exdf.drop(columns=["جميع_المنافسين"])
-        if "_priority" in _exdf.columns: _exdf = _exdf.drop(columns=["_priority"])
-        excel_data = export_to_excel(_exdf, prefix)
-        st.download_button("📥 Excel", data=excel_data,
-            file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d')}.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key=f"{prefix}_xl",
-            )
-    with ac2:
-        _csdf = filtered.copy()
-        if "جميع المنافسين" in _csdf.columns: _csdf = _csdf.drop(columns=["جميع المنافسين"])
-        if "جميع_المنافسين" in _csdf.columns: _csdf = _csdf.drop(columns=["جميع_المنافسين"])
-        if "_priority" in _csdf.columns: _csdf = _csdf.drop(columns=["_priority"])
-        _csv_bytes = _csdf.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
-        st.download_button("📄 CSV", data=_csv_bytes,
-            file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d')}.csv",
-            mime="text/csv", key=f"{prefix}_csv",
-            )
+        for _drop in ("جميع المنافسين", "جميع_المنافسين", "_priority"):
+            if _drop in _exdf.columns:
+                _exdf = _exdf.drop(columns=[_drop])
+        try:
+            _pop_export = st.popover("📥 تصدير", use_container_width=True)
+        except Exception:
+            _pop_export = st.expander("📥 تصدير")
+        with _pop_export:
+            st.download_button("📊 Excel", data=export_to_excel(_exdf, prefix),
+                file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d')}.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key=f"{prefix}_xl", use_container_width=True,
+                )
+            _csv_bytes = _exdf.to_csv(index=False, encoding="utf-8-sig").encode("utf-8-sig")
+            st.download_button("📄 CSV", data=_csv_bytes,
+                file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv", key=f"{prefix}_csv", use_container_width=True,
+                )
     with ac4:
         if section_type == "excluded":
             st.caption("إرسال Make غير متاح لهذا القسم")
