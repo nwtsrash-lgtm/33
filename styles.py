@@ -175,7 +175,9 @@ def _safe_str(v, fallback=""):
     s = str(v or "").strip()
     return fallback if s.lower() in ("", "nan", "none", "<na>") else s
 
-def _img_tag(url, w=64, h=64, border_color="#333", radius=10, css_class=""):
+def _img_tag(url, w=64, h=64, border_color="#333", radius=10, css_class="", fit="cover"):
+    # fit: "cover" (افتراضي، يملأ ويقصّ) أو "contain" (يُظهر المنتج كاملاً —
+    # أوضح لصور العطور). المرحلة 5/V1: أُضيف للساحة دون تغيير بقية النداءات.
     u = _safe_str(url)
     if not u or not u.lower().startswith("http"):
         return ""
@@ -183,7 +185,7 @@ def _img_tag(url, w=64, h=64, border_color="#333", radius=10, css_class=""):
     cls = f'class="{css_class}"' if css_class else ""
     return (
         f'<img {cls} src="{eu}" '
-        f'style="width:{w}px;height:{h}px;border-radius:{radius}px;object-fit:cover;'
+        f'style="width:{w}px;height:{h}px;border-radius:{radius}px;object-fit:{fit};'
         f'border:1px solid {border_color};background:#0e1628;flex-shrink:0" '
         f'loading="lazy" referrerpolicy="no-referrer" '
         f'onerror="this.style.display=\'none\'" />'
@@ -983,6 +985,15 @@ def _build_single_card_html(row: dict) -> str:
 
     reason_html = (f'<div class="v32-reason">ℹ️ {_html_escape(reason_v)}</div>' if reason_v else "")
 
+    # المرحلة 5/V1: أسماء قصيرة متقابلة لجهتَي الساحة (منتجنا | منتج المنافس الأرخص).
+    our_name_arena = _html_escape(str(_col(row, "name", "") or "")[:45])
+    _comp_name_arena = ""
+    if cheapest:
+        _comp_name_arena = str(cheapest.get("name", cheapest.get("comp_name", "")) or "")
+    if not _comp_name_arena or _comp_name_arena.strip() in ("", "—"):
+        _comp_name_arena = comp_name if comp_name not in ("", "—") else ""
+    comp_name_arena = _html_escape(_comp_name_arena[:45])
+
     _v32_html = f"""<div class="v32-card {arena_class}">
 <div class="v32-header" dir="rtl">
 {_img_tag(our_img, 48, 48, '#334155', 8)}
@@ -995,7 +1006,8 @@ def _build_single_card_html(row: dict) -> str:
 <div class="v32-arena" dir="rtl">
 <div class="v32-side v32-our" style="border-color:{our_border};background:{our_bg}">
 <span class="v32-side-label v32-our-label">منتجنا</span>
-{_img_tag(our_img, 96, 96, our_border, 12)}
+{_img_tag(our_img, 112, 112, our_border, 12, fit="contain")}
+<div class="v32-side-name" title="{our_name_arena}">{our_name_arena or '—'}</div>
 <div class="v32-big-price" style="color:#818CF8">{our_price:,.0f}</div>
 <div class="v32-currency">ر.س</div>
 </div>
@@ -1006,7 +1018,8 @@ def _build_single_card_html(row: dict) -> str:
 </div>
 <div class="v32-side v32-comp" style="border-color:{comp_border};background:{comp_bg}">
 <span class="v32-side-label v32-comp-label">{comp_store}</span>
-{_img_tag(comp_img, 96, 96, comp_border, 12)}
+{_img_tag(comp_img, 112, 112, comp_border, 12, fit="contain")}
+<div class="v32-side-name" title="{comp_name_arena}">{comp_name_arena or '—'}</div>
 <div class="v32-big-price" style="color:{vs_color if diff > 0 else '#94A3B8'}">{comp_price:,.0f}</div>
 <div class="v32-currency">ر.س</div>
 </div>
@@ -1207,8 +1220,9 @@ _V32_CSS = """<style>
 .v32-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:3px;font-size:.72rem}
 .v32-brand{color:#818CF8;background:rgba(99,102,241,.1);padding:1px 7px;border-radius:4px}
 .v32-sku{color:#64748B}
-.v32-arena{display:flex;align-items:stretch;gap:0;padding:20px 16px;background:rgba(2,6,23,.3)}
-.v32-side{flex:1;display:flex;flex-direction:column;align-items:center;gap:8px;padding:16px 12px;border:2px solid;border-radius:12px;transition:all .2s ease;position:relative}
+.v32-arena{display:flex;align-items:stretch;gap:0;padding:14px 14px;background:rgba(2,6,23,.3)}
+.v32-side{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 10px;border:2px solid;border-radius:12px;transition:all .2s ease;position:relative}
+.v32-side-name{font-size:.72rem;color:#94A3B8;text-align:center;line-height:1.3;width:100%;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;max-height:2.6em}
 .v32-side-label{position:absolute;top:-10px;left:50%;transform:translateX(-50%);font-size:.65rem;font-weight:700;padding:1px 10px;border-radius:10px;white-space:nowrap}
 .v32-our-label{background:#3730A3;color:#C7D2FE}
 .v32-comp-label{background:#1F2937;color:#94A3B8;max-width:90%;overflow:hidden;text-overflow:ellipsis}
