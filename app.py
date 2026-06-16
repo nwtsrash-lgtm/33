@@ -218,23 +218,6 @@ def _cached_title_from_product_url(page_url: str) -> str:
     return fetch_page_title_from_url(page_url) or ""
 
 
-def _norm_dup_text(s: str) -> str:
-    """تطبيع اسم المنتج لمقارنة تكرار محلية أدق."""
-    t = str(s or "").strip().lower()
-    t = re.sub(r"(eau de parfum|eau de toilette|parfum|edp|edt|for men|for women)", " ", t, flags=re.I)
-    t = re.sub(r"(للرجال|للنساء|رجالي|نسائي|او دي بارفان|او دو بارفان|او دي تواليت)", " ", t)
-    t = re.sub(r"[^0-9a-z\u0600-\u06FF\s]", " ", t)
-    return re.sub(r"\s+", " ", t).strip()
-
-
-def _dup_similarity(a: str, b: str) -> float:
-    aa = set(_norm_dup_text(a).split())
-    bb = set(_norm_dup_text(b).split())
-    if not aa or not bb:
-        return 0.0
-    return len(aa & bb) / max(len(aa), len(bb))
-
-
 def _debug_log(hypothesis_id: str, location: str, message: str, data: dict | None = None, run_id: str = "pre-fix") -> None:
     # region agent log
     try:
