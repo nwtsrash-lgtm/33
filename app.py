@@ -2823,21 +2823,19 @@ def render_pro_table(
             st.markdown(_hr_act, unsafe_allow_html=True)
 
         # ── تعريف الأعمدة (b1..ba) لجميع الأقسام لضمان عدم حدوث UnboundLocalError ──
+        # المرحلة 5/V7: أُزيل «✅ موافق» (b3) من البطاقة في كل الأقسام (بطلب
+        # المستخدم) — لم يعد يُنشأ عمودُه ولا كتلتُه. تبقى «⋯ أدوات» (سعر أعلى/
+        # أقل) والشريط العلوي وبقية الأزرار.
         if prefix in ("raise", "lower"):
-            # b1:AI, b2:Market, b3:OK, b4:Defer, b9:History, ba:Analyze
-            # (زر «🔍 تحقق» b8 أُزيل — مكرر وظيفياً مع b1 الذي يستدعي verify_match نفسه)
-            # المرحلة 5/C6: الأساسي «✅ موافق» (b3) يبقى ظاهراً في عمود ضيّق
-            # (إلى جانب 🚀/🗑️ في شريط الإجراءات أعلاه)؛ الأدوات الثانوية
-            # (🤖/🌐/⏸️/📈/📊) تُطوى في expander «⋯ أدوات» لتقليل ازدحام البطاقة.
-            b3, _b3_sp = st.columns([1, 5])
+            # b1:AI, b2:Market, b4:Defer, b9:History, ba:Analyze (مطويّة في «⋯ أدوات»)
             with st.expander("⋯ أدوات", expanded=False):
                 b1, b2, b4, b9, ba = st.columns(5)
         elif prefix == "approved":
-            # b1:AI, b2:Market, b3:OK, b4:Defer, b5:Remove, b6:Price, b7:Make
-            b1, b2, b3, b4, b5, b6, b7 = st.columns(7)
+            # b1:AI, b2:Market, b4:Defer, b5:Remove, b6:Price, b7:Make
+            b1, b2, b4, b5, b6, b7 = st.columns(6)
         else:
-            # b1..ba (9 columns) — b8 (تحقق) أُزيل لأنه مكرر مع b1
-            b1, b2, b3, b4, b5, b6, b7, b9, ba = st.columns([1, 1, 1, 1, 1, 1, 1, 1, 1])
+            # b1..ba — b8 (تحقق) وb3 (موافق) أُزيلا
+            b1, b2, b4, b5, b6, b7, b9, ba = st.columns(8)
 
         with b1:  # AI تحقق ذكي — يُصحح القسم
             _ai_label = {"raise": "🤖 هل نخفض؟", "lower": "🤖 هل نرفع؟",
@@ -2933,27 +2931,7 @@ def render_pro_table(
                     else:
                         st.warning("تعذر البحث في السوق")
 
-        with b3:  # موافق
-            if st.button("✅ موافق", key=f"ok_{prefix}_{idx}"):
-                st.session_state.decisions_pending[our_name] = {
-                    "action": "approved", "reason": "موافقة يدوية",
-                    "our_price": our_price, "comp_price": comp_price,
-                    "diff": diff, "competitor": comp_src,
-                    "ts": datetime.now().strftime("%Y-%m-%d %H:%M")
-                }
-                log_decision(our_name, prefix, "approved",
-                             "موافقة يدوية", our_price, comp_price, diff, comp_src)
-                _hk3 = f"{prefix}_{our_name}_{idx}"
-                st.session_state.hidden_products.add(_hk3)
-                save_hidden_product(_hk3, our_name, "approved")
-                # ── توجيه آلي → تمت المعالجة ──
-                _auto_route_to_processed(
-                    our_name, str(row.get("معرف_المنتج","")),
-                    comp_src, "approved",
-                    old_price=our_price, new_price=our_price,
-                    notes=f"موافق من {prefix}",
-                )
-                st.rerun()
+        # المرحلة 5/V7: أُزيلت كتلة «✅ موافق» (b3) بطلب المستخدم.
 
         with b4:  # تأجيل
             if st.button("⏸️ تأجيل", key=f"df_{prefix}_{idx}"):
@@ -3068,77 +3046,8 @@ def render_pro_table(
                         an_res = analyze_product_inline(row, _section_map_an.get(prefix, prefix))
                         render_analysis_result(an_res)
 
-        # ── Task 3.5 & 3.6 — Inline Edit + Force Link ────────────────────────
-        _edit_col, _link_col, _spacer35 = st.columns([1.5, 1.5, 7])
-
-        with _edit_col:
-            try:
-                _pop_edit = st.popover("✏️ تعديل", use_container_width=True)
-            except Exception:
-                _pop_edit = st.expander("✏️ تعديل")
-            with _pop_edit:
-                st.markdown(f"**تعديل:** {our_name}")
-                _ov_key35 = f"edit_{our_name}"
-                _edit_name35 = st.text_input(
-                    "الاسم الجديد",
-                    value=our_name,
-                    key=f"edit_name_{prefix}_{idx}",
-                    placeholder="اتركه فارغاً للإبقاء على الأصلي",
-                )
-                _edit_price35 = st.number_input(
-                    "السعر الجديد (ر.س)",
-                    value=float(our_price or 0),
-                    min_value=0.0,
-                    step=1.0,
-                    key=f"edit_price_{prefix}_{idx}",
-                )
-                _edit_url35 = st.text_input(
-                    "الرابط الجديد",
-                    value="",
-                    key=f"edit_url_{prefix}_{idx}",
-                    placeholder="https://...",
-                )
-                if st.button("💾 حفظ", key=f"save_edit_{prefix}_{idx}", type="primary"):
-                    _ok35 = update_product_data(
-                        _ov_key35,
-                        _edit_name35.strip() or our_name,
-                        _edit_price35,
-                        _edit_url35.strip(),
-                    )
-                    if _ok35:
-                        st.success("✅ تم الحفظ")
-                        st.rerun()
-                    else:
-                        st.error("❌ فشل الحفظ")
-
-        with _link_col:
-            try:
-                _pop_link = st.popover("🔗 ربط يدوي", use_container_width=True)
-            except Exception:
-                _pop_link = st.expander("🔗 ربط يدوي")
-            with _pop_link:
-                st.markdown(f"**ربط:** {our_name}")
-                _fl_url35 = st.text_input(
-                    "رابط منتج المنافس",
-                    key=f"fl_url_{prefix}_{idx}",
-                    placeholder="https://competitor.com/product/...",
-                )
-                st.caption("سيُسجَّل كمطابقة مؤكدة (source=manual)")
-                _pid_fl35 = str(
-                    row.get("معرف_المنتج", "")
-                    or row.get("product_id", "")
-                    or ""
-                ).strip()
-                if st.button("🔗 تأكيد", key=f"confirm_fl_{prefix}_{idx}", type="primary"):
-                    if _fl_url35.startswith("http"):
-                        _ok_fl = force_link_product(_pid_fl35, our_name, _fl_url35.strip())
-                        if _ok_fl:
-                            st.success("✅ تم الربط")
-                            st.rerun()
-                        else:
-                            st.error("❌ فشل الربط")
-                    else:
-                        st.warning("⚠️ رابط غير صحيح")
+        # المرحلة 5/V7: أُزيل صفّ «✏️ تعديل» + «🔗 ربط يدوي» (الزرّان السفليان
+        # expand_more) من البطاقة في كل الأقسام بطلب المستخدم.
 
         _hr_m = "3px 0" if (compact_cards and prefix == "raise") else "6px 0"
         st.markdown(
