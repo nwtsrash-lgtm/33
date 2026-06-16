@@ -3106,19 +3106,14 @@ def render_pro_table(
             unsafe_allow_html=True,
         )
 
-    # ── v32: Bottom Pagination ───────────────
-    _btm_tp = max(1, (len(filtered) + 24) // 25)
-    if _btm_tp > 1:
-        _bpg1, _bpg2, _bpg3 = st.columns([1, 2, 1])
-        with _bpg2:
-            st.markdown(
-                f'<div style="text-align:center;padding:12px;background:#111827;border-radius:10px;'
-                f'border:1px solid #1F293788;margin-top:8px">'
-                f'<span style="color:#9CA3AF;font-size:.85rem">'
-                f'صفحة {_pg_num} من {_btm_tp} '
-                f'| إجمالي {len(filtered)} منتج</span></div>',
-                unsafe_allow_html=True,
-            )
+    # ── ترقيم تفاعلي أسفل القسم (المرحلة 5/P2) ──
+    # متزامن مع الترقيم الأعلى عبر state_key=f"{prefix}_pro" (حالة صفحة واحدة)؛
+    # مفاتيح أزرار مستقلّة "{prefix}_pro_btm" لتفادي تكرار المفاتيح. page_size=15
+    # يطابق النداء الأعلى (يصلح خطأ العدّاد القديم الذي كان يحسب الصفحات بـ25).
+    if len(filtered) > 15:
+        st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+        render_pagination(len(filtered), 15, f"{prefix}_pro_btm",
+                          state_key=f"{prefix}_pro")
 
 
 
