@@ -701,21 +701,35 @@ def miss_card_v2(data: dict) -> str:
     if variant_type and variant_product:
         _vc = "#F59E0B" if "تستر" in variant_type else "#10B981"
         var_html = f'''
-        <div style="background:{_vc}0a;border:1px solid {_vc}33;border-radius:10px;
-                    padding:8px 14px;margin-top:10px;font-size:12px;color:{_vc};
-                    display:flex;align-items:center;gap:6px;">
-            ⚠️ <span style="font-weight:700;">{_html_escape(variant_type)}</span>:
-            <span style="color:#94a3b8">{_html_escape(variant_product[:50])}</span>
-            <span style="color:#64748b">({variant_score:.0f}%)</span>
+        <div style="background:{_vc}14;border:1px solid {_vc}55;border-right:4px solid {_vc};
+                    border-radius:10px;padding:10px 14px;margin-top:10px;">
+            <div style="font-size:12.5px;font-weight:800;color:{_vc};margin-bottom:3px;
+                        display:flex;align-items:center;gap:6px;">
+                ⚠️ {_html_escape(variant_type)} لديك
+                <span style="color:#64748b;font-weight:600;">({variant_score:.0f}% تشابه)</span>
+            </div>
+            <div style="font-size:13px;color:#e2e8f0;font-weight:700;line-height:1.45;">
+                {_html_escape(variant_product[:70])}
+            </div>
         </div>'''
+    # المرحلة 5/V3: إبراز «المشابه لدينا» كصندوق واضح (اسم المنتج في سطر مستقل
+    # بخط أكبر + تلميح للمراجعة) بدل سطر صغير — لتقليل خطر إضافة منتج مكرّر.
     pot_html = ""
     if potential_match and sim_score > 50:
         pot_html = f'''
-        <div style="background:#1e3a5f14;border:1px solid #3b82f633;border-radius:10px;
-                    padding:8px 14px;margin-top:6px;font-size:12px;color:#60a5fa;
-                    display:flex;align-items:center;gap:6px;">
-            🔍 مشابه لدينا: <span style="font-weight:700;">{_html_escape(potential_match[:50])}</span>
-            <span style="color:#64748b">({sim_score:.0f}%)</span>
+        <div style="background:#1e3a5f24;border:1px solid #3b82f655;border-right:4px solid #3b82f6;
+                    border-radius:10px;padding:10px 14px;margin-top:6px;">
+            <div style="font-size:12.5px;font-weight:800;color:#60a5fa;margin-bottom:3px;
+                        display:flex;align-items:center;gap:6px;">
+                🔍 لديك منتج مشابه
+                <span style="color:#64748b;font-weight:600;">({sim_score:.0f}% تشابه)</span>
+            </div>
+            <div style="font-size:13px;color:#e2e8f0;font-weight:700;line-height:1.45;">
+                {_html_escape(potential_match[:70])}
+            </div>
+            <div style="font-size:10.5px;color:#94a3b8;margin-top:4px;">
+                راجِع قبل الإضافة لتفادي التكرار
+            </div>
         </div>'''
     # ── البطاقة الرئيسية ──
     _comp_word = "منافس" if n_comp <= 2 else ("منافسين" if n_comp <= 10 else "منافس")
