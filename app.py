@@ -2507,17 +2507,10 @@ def render_pro_table(
             st.session_state.decisions_pending = {}
             st.rerun()
 
-    # FIX: Transparency & Reversibility
-    _hidden_in_view = 0
-    for _idx, _row in filtered.iterrows():
-        _our_name_h = str(_row.get("المنتج", "—"))
-        _hide_key_h = f"{prefix}_{_our_name_h}_{_idx}"
-        if _hide_key_h in st.session_state.hidden_products:
-            _hidden_in_view += 1
-            continue
-        if prefix in ("raise", "lower") and st.session_state.get(f"excluded_{prefix}_{_idx}"):
-            _hidden_in_view += 1
-    _show_transparency_counter(len(df), max(0, len(filtered) - _hidden_in_view))
+    # ── عدّاد العرض (المرحلة 5/C2) ──
+    # أُزيل _show_transparency_counter المكرر هنا: القسم يعرضه أصلاً على مستوى
+    # الصفحة قبل دخول الجدول (صندوق st.info بإجمالي الفئة + المخفي)، فتكرارُه
+    # داخل الجدول كان صندوقَين متطابقَين. caption «عرض X من Y» يكفي للمُصفّى.
     st.caption(f"عرض {len(filtered)} من {len(df)} منتج — {datetime.now().strftime('%H:%M:%S')}")
 
     # ── v33: تنقل موحّد بأسهم وأرقام صفحات ──
