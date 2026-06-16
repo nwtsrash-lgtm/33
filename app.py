@@ -2326,11 +2326,11 @@ def render_pro_table(
             else:
                 gender_f = "الكل"
                 size_f   = "الكل"
-            _fcb1, _fcb2 = st.columns([1.2, 4.8])
+            # المرحلة 5/C3: أُزيل زر «↩️ تحديث» المكرر — كلا الزرّين كان يُرسل
+            # النموذج نفسه (لا فرق وظيفي). عمود ضيّق يمنع امتداد الزر عبر الصفحة.
+            _fcb1, _fcb_sp = st.columns([1.2, 4.8])
             with _fcb1:
                 st.form_submit_button("🔍 تطبيق الفلاتر", use_container_width=True, type="primary")
-            with _fcb2:
-                st.form_submit_button("↩️ تحديث", use_container_width=True)
     else:
         with st.expander("🔍 فلاتر متقدمة", expanded=False):
             with st.form(key=f"{prefix}_filters_form_adv", border=False):
