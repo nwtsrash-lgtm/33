@@ -123,26 +123,15 @@ class CompetitorIntelligence:
             log.warning("_ensure_columns: %s", e)
 
     def _ensure_indexes(self):
-        """إنشاء فهارس لتسريع البحث"""
-        indexes = [
-            "CREATE INDEX IF NOT EXISTS idx_ci_comp ON competitor_products_store(competitor)",
-            "CREATE INDEX IF NOT EXISTS idx_ci_brand ON competitor_products_store(brand)",
-            "CREATE INDEX IF NOT EXISTS idx_ci_price ON competitor_products_store(price)",
-            "CREATE INDEX IF NOT EXISTS idx_ci_first ON competitor_products_store(first_seen_at)",
-            "CREATE INDEX IF NOT EXISTS idx_ci_norm ON competitor_products_store(norm_name)",
-        ]
-        try:
-            conn = sqlite3.connect(self.db_path)
-            cur = conn.cursor()
-            for idx in indexes:
-                try:
-                    cur.execute(idx)
-                except sqlite3.OperationalError:
-                    pass
-            conn.commit()
-            conn.close()
-        except Exception as e:
-            log.warning("_ensure_indexes: %s", e)
+        """فهارس الأداء يملكها db_manager.ensure_indexes() (المصدر الوحيد).
+
+        L2/C2: كانت هذه الدالة تنشئ عائلة idx_ci_* المكرّرة (نفس أعمدة
+        idx_cps_*2 / idx_cps_norm2 / idx_cps_first_seen) فتُضخّم كلفة الإدخال
+        وتُعيد التكرار في المسار الحيّ. أُفرِغت لمنع إعادة الإنشاء؛ الأعمدة
+        (competitor/brand/price/norm_name/first_seen) مفهرسة قانونياً في db_manager.
+        (لا تُمَسّ _ensure_columns — إضافة الأعمدة لا تزال مطلوبة.)
+        """
+        return
 
     # ══════════════════════════════════════════════════════════════════
     #  استعلامات مع Pagination
