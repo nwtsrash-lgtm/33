@@ -937,7 +937,7 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     # علَم فشل الحساب — يُصفَّر مع كل تنفيذ فعلي (cache-miss) ويُضبط في except أدناه،
     # ليُميّز موقعُ العرض بين «لا مفقود» الحقيقي و«فشل الحساب» (لا عرض فارغ صامت).
     st.session_state["_missing_compute_failed"] = ""
-    _TH = 82  # عتبة «نملكه» (مثبتة بتحقّق عيّنة يدوي: 0 إيجابيات كاذبة)
+    _TH = MISSING_CONFIRMED_THRESHOLD  # عتبة «نملكه» (config، =82 مضبوطة بتحقّق عيّنة: 0 إيجابيات كاذبة)
     # 1) كتالوجنا: من الجلسة إن وُجد، وإلا من الملف المحفوظ
     our_df = st.session_state.get("our_df")
     if not isinstance(our_df, pd.DataFrame) or our_df.empty:
@@ -1065,7 +1065,7 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     #                    يُحسم بـ Gemini أو يدوياً — لا نخسر مفقوداً حقيقياً)
     #    غير ذلك       = مفقود مؤكد (green)
     _CONFIRM    = _TH   # 82: عتبة «نملكه»
-    _REVIEW_MIN = 65    # عتبة «محتمل موجود»
+    _REVIEW_MIN = MISSING_REVIEW_THRESHOLD    # عتبة «محتمل موجود» (config، =65)
     _SIZE_TOL   = 8.0   # تسامح فرق الحجم (مل) لاعتبار منتجين نفس الحجم
     _owned = _review = 0
     rows = []
