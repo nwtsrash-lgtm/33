@@ -6044,21 +6044,25 @@ elif page == "🔍 منتجات مفقودة":
                 if not _miss_img and _miss_comp_url.startswith("http"):
                     _miss_img = _cached_thumb_from_product_url(_miss_comp_url)
 
-                _our_potential_img = ""
-                if variant_product and variant_product in _adf_first_by_name:
-                    _our_potential_img, _ = row_media_urls_from_analysis(
-                        _adf_first_by_name[variant_product]
-                    )
+                # المرحلة 5/M2: بيانات منتجنا المشابه للساحة (الحالة 1 في
+                # miss_card_v2). تُشتقّ من صف كتالوجنا للمنتج المتاح/المطابق المحتمل.
+                _our_sim_name = ""
+                _our_sim_img = ""
+                _our_sim_price = 0.0
+                _sim_ref = variant_product or str(row.get("منتج_مطابق_محتمل", "") or "")
+                if _sim_ref and _sim_ref in _adf_first_by_name:
+                    _sim_row = _adf_first_by_name[_sim_ref]
+                    _our_sim_name = str(_sim_ref)
+                    _our_sim_img, _ = row_media_urls_from_analysis(_sim_row)
+                    try:
+                        _our_sim_price = safe_float(_sim_row.get("السعر", 0))
+                    except Exception:
+                        _our_sim_price = 0.0
+                _our_sim_pct = variant_score or conf_score
 
                 with card_col:
-                    if _our_potential_img and _has_variant:
-                        images_html = _processed_dual_image_html(
-                            _our_potential_img,
-                            _miss_img,
-                            "منتجنا (محتمل)",
-                            name[:40],
-                        )
-                        st.markdown(images_html, unsafe_allow_html=True)
+                    # المرحلة 5/M2: أُزيلت الصورة المزدوجة المنفصلة — صار عرض
+                    # «منتجنا VS المفقود» داخل ساحة miss_card_v2 (لا تكرار).
                     # v33: بطاقة محسّنة مع بطاقات فرعية لكل منافس
                     _comp_details_raw = row.get("تفاصيل_المنافسين", [])
                     if isinstance(_comp_details_raw, str):
@@ -6095,6 +6099,13 @@ elif page == "🔍 منتجات مفقودة":
                         "نسبة_التشابه":        variant_score,
                         "منتج_مطابق_محتمل":    str(row.get("منتج_مطابق_محتمل", "") or ""),
                         "درجة_التشابه":        conf_score,
+                        # المرحلة 5/M2: بيانات الساحة (منتجنا المشابه + المفقود)
+                        "منتجنا_مشابه_اسم":    _our_sim_name,
+                        "منتجنا_مشابه_صورة":   _our_sim_img,
+                        "منتجنا_مشابه_سعر":    _our_sim_price,
+                        "منتجنا_مشابه_نسبة":   _our_sim_pct,
+                        "صورة_المفقود":        _miss_img,
+                        "سعر_المفقود":         price,
                     }), unsafe_allow_html=True)
 
                 # ── إجراءات مختصرة على البطاقة ───────────────────────────
