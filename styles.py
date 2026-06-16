@@ -1024,10 +1024,10 @@ def _build_single_card_html(row: dict) -> str:
 <div class="v32-currency">ر.س</div>
 </div>
 </div>
-<details class="v32-accordion">
-<summary class="v32-accordion-trigger"><span>👥 استعراض كل المنافسين ({comps_count})</span><span class="v32-accordion-arrow">▼</span></summary>
-<div class="v32-accordion-body">{comps_html}</div>
-</details>
+<div class="v32-comps-always">
+<div class="v32-comps-head">👥 المنافسون ({comps_count})</div>
+<div class="v32-comps-body">{comps_html}</div>
+</div>
 {reason_html}
 <div class="v32-action-bar-placeholder" data-pid="{_html_escape(pid_str)}">
 {f'<span class="v32-date">📅 {_html_escape(date_str)}</span>' if date_str else ''}
@@ -1239,6 +1239,9 @@ _V32_CSS = """<style>
 .v32-accordion[open] .v32-accordion-arrow{transform:rotate(180deg)}
 .v32-accordion-arrow{transition:transform .2s ease;display:inline-block}
 .v32-accordion-body{padding:8px 16px 12px;border-top:1px solid #1E293B;max-height:280px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#334155 transparent}
+.v32-comps-always{border-top:1px solid #1E293B;background:#0A0F1A}
+.v32-comps-head{padding:9px 16px 2px;font-size:.74rem;font-weight:700;color:#64748B}
+.v32-comps-body{padding:4px 16px 12px;max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#334155 transparent}
 .v32-comp-row{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;border:1px solid transparent;transition:background .15s;margin:3px 0}
 .v32-comp-row:hover{background:rgba(30,41,59,.5)}
 .v32-comp-row.lead-row{border-color:#F59E0B22;background:rgba(245,158,11,.04)}
