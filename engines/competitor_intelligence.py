@@ -323,6 +323,15 @@ class CompetitorIntelligence:
                 conn.close()
 
         # تجميع بالبصمة — فهرسة مباشرة للصف (أسرع من dict(row) لكل صف)
+        # حارس ذاكرة محمول (بلا psutil): سقف على عدد المفقودات الفريدة. خريطة
+        # التجميع هي التكلفة المهيمنة، ونموّها غير المحدود = OOM على Railway عند
+        # مئات الآلاف × 10 منافسين. الافتراضي 250,000 > الحجم الحالي (118K) فلا
+        # أثر الآن (مطابق بايت-ببايت)، ويُضبط عبر MISSING_MAX_UNIQUE.
+        try:
+            _MAX_UNIQUE = int(os.environ.get("MISSING_MAX_UNIQUE", "250000"))
+        except (TypeError, ValueError):
+            _MAX_UNIQUE = 250000
+        _capped = False
         missing_map = {}  # fingerprint → aggregated data
         for row in _stream_rows():
             _pn, _br, _cat, _img, _price_raw, _comp = (
@@ -337,6 +346,11 @@ class CompetitorIntelligence:
                 continue
 
             if fp not in missing_map:
+                # سقف الأمان: عند بلوغ الحدّ لا نُنشئ مفقوداً فريداً جديداً، لكن
+                # نتابع تجميع الموجود (أسعار/منافسون يبقون دقيقين) — أقلّ القصّ ضرراً.
+                if len(missing_map) >= _MAX_UNIQUE:
+                    _capped = True
+                    continue
                 missing_map[fp] = {
                     "fingerprint": fp,
                     "product_name": r.get("product_name", ""),
@@ -369,6 +383,13 @@ class CompetitorIntelligence:
                 if not m["image_url"] and r.get("image_url"):
                     m["image_url"] = r["image_url"]
                 m["suggested_price"] = max(0, m["min_price"] - 1)
+
+        if _capped:
+            log.warning(
+                "find_missing: بلغ سقف المفقودات الفريدة %d (MISSING_MAX_UNIQUE) — "
+                "أُوقف إنشاء عناصر فريدة جديدة لحماية الذاكرة. ارفع السقف أو ضيّق "
+                "الفلاتر إن لزم عرض المزيد.", _MAX_UNIQUE,
+            )
 
         # تحويل لقائمة مرتبة
         missing_list = sorted(missing_map.values(), key=lambda x: x["competitor_count"], reverse=True)
