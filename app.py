@@ -1012,7 +1012,9 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         })
     _n_green = sum(1 for r in rows if r.get("مستوى_الثقة") == "green")
     try:
-        print(f"[_compute_missing_from_store] مرشحون={len(_prods)} "
+        import logging as _cm_log
+        _cm_log.getLogger(__name__).info(
+            f"[_compute_missing_from_store] مرشحون={len(_prods)} "
               f"بعد_دمج_الاسم={len(_cand)} "
               f"(مستبعد: غير_عطر={_drop_class} مجموعات={_drop_set} "
               f"سعر_متطرف={_drop_price} اسم_قصير={_drop_short} "
