@@ -1259,6 +1259,19 @@ def check_duplicate(product_name, our_products):
 
 
 # ══ تحقق ذكي من التكرار (Phase 3 — RapidFuzz → AI Funnel) ═══════════════════
+def _dedup_cache_key(missing_name: str, candidates: list) -> str:
+    """مفتاح cache مستقر لـ ai_verify_dedup (يعتمد الاسم + أسماء المرشحين فقط،
+    مثل _ai_batch — درجة التشابه fuzzy لا تدخل المفتاح)."""
+    import hashlib as _hl
+    payload = {
+        "m": str(missing_name).strip().lower(),
+        "c": sorted(str(c.get("name", "")).strip().lower() for c in candidates[:5]),
+    }
+    return "dedup:" + _hl.md5(
+        json.dumps(payload, ensure_ascii=False, sort_keys=True).encode()
+    ).hexdigest()
+
+
 def ai_verify_dedup(missing_name: str, candidates: list[dict]) -> dict:
     """
     يتحقق مما إذا كان المنتج المفقود مطابقاً لأحد المرشحين القلائل.
@@ -1276,6 +1289,20 @@ def ai_verify_dedup(missing_name: str, candidates: list[dict]) -> dict:
     """
     if not missing_name or not candidates:
         return {"match": False, "matched_name": "", "confidence": 0, "reason": "بيانات ناقصة"}
+
+    # ── cache: تفادي إعادة طلب AI لنفس (المفقود + المرشحين) ──────────────
+    # نعيد استخدام مخزن engine الدائم (match_cache_v22.db) نفسه الذي يستخدمه
+    # _ai_batch، ببادئة "dedup:" لفصل المفاتيح. نخزّن النتائج المؤكدة فقط؛
+    # لا نخزّن فشل/غموض AI حتى لا يتجمّد قرار خاطئ في الـ cache.
+    _ck = _dedup_cache_key(missing_name, candidates)
+    try:
+        from engines.engine import _cget as _dc_get, _cset as _dc_set
+    except Exception:
+        _dc_get = _dc_set = None
+    if _dc_get is not None:
+        _cached = _dc_get(_ck)
+        if isinstance(_cached, dict) and "match" in _cached:
+            return _cached
 
     cand_lines = "\n".join(
         f"  {i+1}. {c['name']} (تشابه {c['score']:.0f}%)"
@@ -1327,12 +1354,19 @@ def ai_verify_dedup(missing_name: str, candidates: list[dict]) -> dict:
     if is_match and 1 <= matched_idx <= len(candidates):
         matched_name = candidates[matched_idx - 1].get("name", "")
 
-    return {
+    out = {
         "match": is_match,
         "matched_name": matched_name,
         "confidence": confidence,
         "reason": reason,
     }
+    # خزّن النتيجة المؤكدة فقط (وصلنا هنا = AI نجح وحُلّل JSON بنجاح)
+    if _dc_set is not None:
+        try:
+            _dc_set(_ck, out)
+        except Exception:
+            pass
+    return out
 
 
 # ══ تحليل مجمع ════════════════════════════════════════════════════════════════
