@@ -6247,6 +6247,12 @@ elif page == "🔍 منتجات مفقودة":
                         st.rerun()
 
                 st.markdown('<hr style="border:none;border-top:1px solid #0d1a2e;margin:8px 0">', unsafe_allow_html=True)
+
+            # المرحلة 5/P3: ترقيم تفاعلي أسفل المفقودات — متزامن مع الأعلى عبر
+            # state_key="miss"؛ مفاتيح أزرار مستقلّة "miss_btm"؛ page_size=12 مطابق.
+            if len(_display_df) > 12:
+                st.markdown("<div style='margin-top:8px'></div>", unsafe_allow_html=True)
+                render_pagination(len(_display_df), 12, "miss_btm", state_key="miss")
         else:
             st.success("✅ لا توجد منتجات مفقودة!")
     else:
