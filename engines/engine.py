@@ -2412,9 +2412,8 @@ def _row(product, our_price, our_id, brand, size, ptype, gender,
 
     # أعد حساب القرار بناءً على الأرخص
     if not override:
-        if score < NO_MATCH_THRESHOLD:
-            pass  # معالَج بالأعلى
-        elif src in ("gemini", "auto") or score >= REVIEW_MAX:
+        # score < NO_MATCH_THRESHOLD مُعالَج ومُرجَع أعلاه (السطر ~2333) → لا يصل هنا
+        if src in ("gemini", "auto") or score >= REVIEW_MAX:
             if our_price > 0 and cp_display > 0:
                 _pt2 = _smart_price_threshold(our_price, cp_display)
                 if diff_display > _pt2:   dec = "🔴 سعر أعلى"
