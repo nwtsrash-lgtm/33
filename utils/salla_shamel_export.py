@@ -94,6 +94,27 @@ def _norm_text(s: str) -> str:
     return re.sub(r"\s+", " ", t).strip().lower()
 
 
+# مُطبِّع المطابقة لبوابة منع التكرار — مكافئ تماماً لـ app.py::_miss_bare
+# (نفس مطابقة المسار الحيّ للمفقودات): normalize_name + إسقاط كلمات التوقف
+# + الأرقام المفردة + الكلمات <2 حرفاً. مُتحقَّق بايت-ببايت ضدّ app._miss_bare
+# على كامل الكتالوج (7,863 منتجاً، صفر فروق). يُستخدم في verify_truly_missing
+# فقط — لا يمسّ _norm_text أعلاه المستخدَم لتوليد SKU/مفاتيح تحديث الصفوف.
+# ملاحظة: نسخة متزامنة يدوياً (استيراد app.py في util يشغّل التطبيق كاملاً).
+_MISS_STOP_MATCH = frozenset(
+    "عطر عينه عينة تستر سامبل ماء او دو دي بارفيوم برفيوم بارفان تواليت توالت "
+    "كولونيا كولن مل غرام للرجال للنساء رجالي نسائي".split()
+)
+
+
+def _bare_match(nm: str) -> str:
+    """اسم مجرّد للمطابقة — مطابق لخوارزمية app._miss_bare (المُطبِّع الموحّد)."""
+    from engines.engine import normalize_name as _nn
+    return " ".join(
+        t for t in _nn(str(nm)).split()
+        if t not in _MISS_STOP_MATCH and not re.fullmatch(r"\d+", t) and len(t) >= 2
+    )
+
+
 def _safe_str(v: Any) -> str:
     if v is None or (isinstance(v, float) and pd.isna(v)):
         return ""
@@ -507,7 +528,9 @@ def verify_truly_missing(
         return missing_df.copy(), pd.DataFrame()
 
     catalog_names_raw = our_catalog_df[name_col].dropna().astype(str).tolist()
-    catalog_norms = [_norm_text(n) for n in catalog_names_raw]
+    # المُطبِّع الموحّد _bare_match (= app._miss_bare) بدل _norm_text الضعيف —
+    # كي تتّسق بوابة منع التكرار مع المسار الحيّ للمفقودات (المرحلة 2/P0).
+    catalog_norms = [_bare_match(n) for n in catalog_names_raw]
 
     truly_missing = []
     found_in_cat  = []
@@ -523,7 +546,7 @@ def verify_truly_missing(
         if not pname:
             truly_missing.append(row)
             continue
-        pnorm = _norm_text(pname)
+        pnorm = _bare_match(pname)
 
         # 1. تطابق نصي مباشر
         if pnorm in catalog_norms:
