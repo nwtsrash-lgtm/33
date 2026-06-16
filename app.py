@@ -1524,16 +1524,22 @@ def db_log(page, action, details=""):
 
 
 # ── ⚡ v33: دالة تنقل عامة بأسهم وأرقام صفحات ──────────────────────────
-def render_pagination(total_items: int, page_size: int, key_prefix: str) -> tuple:
+def render_pagination(total_items: int, page_size: int, key_prefix: str,
+                      state_key: str = None) -> tuple:
     """
     شريط تنقل موحّد بأسهم وأرقام صفحات.
     يُعيد (start_idx, end_idx, current_page)
+
+    state_key (اختياري): يفصل تتبّع رقم الصفحة عن مفاتيح الأزرار، فيمكن رسم
+    نفس المُرقِّم مرتين (أعلى + أسفل القسم) بمفاتيح أزرار مختلفة (key_prefix)
+    لكن بحالة صفحة مشتركة (state_key) → يتزامن الشريطان. الافتراضي None =
+    السلوك القديم تماماً (التتبّع = key_prefix).
     """
     if total_items <= 0:
         return 0, 0, 1
     total_pages = max(1, (total_items + page_size - 1) // page_size)
     # ── تتبع الصفحة في session_state ──
-    pg_key = f"_pg_{key_prefix}"
+    pg_key = f"_pg_{state_key or key_prefix}"
     if pg_key not in st.session_state:
         st.session_state[pg_key] = 1
     current = int(st.session_state[pg_key])
