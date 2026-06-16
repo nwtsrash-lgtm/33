@@ -533,12 +533,16 @@ def _split_results(df):
         "all":         work.reset_index(drop=True),
     }
 
-    # ── مؤشر الشفافية: تحقق أن لا منتج ضاع ──
+    # ── مؤشر الشفافية: تحقق أن لا منتج ضاع ولا تكرّر بين الأقسام ──
+    # حارس متماثل: < يكشف الضياع (قرار غير مُوزَّع)، > يكشف التكرار (صف في سلّتين).
     _total_in = len(work)
     _total_out = sum(len(result[k]) for k in result if k != "all")
-    if _total_out < _total_in:
+    if _total_out != _total_in:
         try:
-            st.toast(f"⚠️ تحذير: {_total_in - _total_out} منتج لم يُوزَّع!", icon="⚠️")
+            if _total_out < _total_in:
+                st.toast(f"⚠️ تحذير: {_total_in - _total_out} منتج لم يُوزَّع!", icon="⚠️")
+            else:
+                st.toast(f"⚠️ تحذير: {_total_out - _total_in} منتج مكرَّر بين الأقسام!", icon="⚠️")
         except Exception:
             pass
 
