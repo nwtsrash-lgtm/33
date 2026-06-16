@@ -2412,7 +2412,10 @@ def render_pro_table(
 
 
     # ── شريط الأدوات ───────────────────────────
-    ac1, ac2, ac3, ac4, ac5 = st.columns(5)
+    # المرحلة 5/C7a: أُزيل زر «🤖 AI جماعي (أول 20)» المرئي دائماً — مكرر مع
+    # تحقق AI للبطاقة (داخل «⋯ أدوات») ومع نصيحة AI الاستراتيجية (expander
+    # القسم المطوي). بقي مدخلان منخفضا الازدحام، وشريط الأدوات 5→4 أعمدة.
+    ac1, ac2, ac4, ac5 = st.columns(4)
     with ac1:
         _exdf = filtered.copy()
         if "جميع المنافسين" in _exdf.columns: _exdf = _exdf.drop(columns=["جميع المنافسين"])
@@ -2434,24 +2437,6 @@ def render_pro_table(
             file_name=f"{prefix}_{datetime.now().strftime('%Y%m%d')}.csv",
             mime="text/csv", key=f"{prefix}_csv",
             )
-    with ac3:
-        _bulk_labels = {"raise": "🤖 تحليل ذكي — خفض (أول 20)",
-                        "lower": "🤖 تحليل ذكي — رفع (أول 20)",
-                        "review": "🤖 تحقق جماعي (أول 20)",
-                        "approved": "🤖 مراجعة (أول 20)"}
-        if st.button(_bulk_labels.get(prefix, "🤖 AI جماعي (أول 20)"), key=f"{prefix}_bulk"):
-            with st.spinner("🤖 AI يحلل البيانات..."):
-                _section_map = {"raise": "price_raise", "lower": "price_lower",
-                                "review": "review", "approved": "approved"}
-                items = [{
-                    "our": str(r.get("المنتج", "")),
-                    "comp": str(r.get("منتج_المنافس", "")),
-                    "our_price": safe_float(r.get("السعر", 0)),
-                    "comp_price": safe_float(r.get("سعر_المنافس", 0))
-                } for _, r in filtered.head(20).iterrows()]
-                res = bulk_verify(items, _section_map.get(prefix, "general"))
-                st.markdown(f'<div class="ai-box">{_html_mod.escape(str(res["response"]))}</div>',
-                            unsafe_allow_html=True)
     with ac4:
         if section_type == "excluded":
             st.caption("إرسال Make غير متاح لهذا القسم")
