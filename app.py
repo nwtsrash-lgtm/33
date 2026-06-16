@@ -3467,12 +3467,16 @@ if page == "✨ مصنع المنتجات":
 if page == "📊 لوحة التحكم":
     st.header("📊 لوحة التحكم")
     db_log("dashboard", "view")
+    # المرحلة 5/C8: طُويت لوحة المحاسبة التفصيلية (audit + reconciliation) في
+    # expander مطوي لتقليل ازدحام أعلى لوحة التحكم. بانر «لا فقدان بيانات»
+    # المختصر أدناه يبقى ظاهراً للحالة السريعة، والإنذارات 🚨 تبقى ظاهرة دائماً.
     if st.session_state.get("last_audit_stats"):
-        try:
-            _render_audit_bar(st.session_state.last_audit_stats)
-            _render_reconciliation_dashboard(st.session_state.last_audit_stats)
-        except Exception as _dash_render_err:
-            st.error(f"⚠️ خطأ في عرض لوحة المحاسبة: {_dash_render_err}")
+        with st.expander("🔍 لوحة المحاسبة وفحص الثابت (تفصيلي)", expanded=False):
+            try:
+                _render_audit_bar(st.session_state.last_audit_stats)
+                _render_reconciliation_dashboard(st.session_state.last_audit_stats)
+            except Exception as _dash_render_err:
+                st.error(f"⚠️ خطأ في عرض لوحة المحاسبة: {_dash_render_err}")
 
     # تغييرات الأسعار
     changes = get_price_changes(7)
