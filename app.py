@@ -561,156 +561,6 @@ def _split_results(df):
     return result
 
 
-def _auto_resolve_review(results: dict) -> dict:
-    """
-    حسم سلة review آلياً عبر reclassify_review_items (دفعات 30).
-    - أعلى/أقل/موافق → يوزّع على السلال الأربع
-    - مفقود / تحت المراجعة / فشل AI → excluded (سجل داخلي)
-    النتيجة: صفر صفوف في review.
-    """
-    import logging as _log_resolve
-    review_df = results.get("review", pd.DataFrame())
-    if review_df.empty:
-        return results
-
-    total_review = len(review_df)
-    resolved_to_raise = 0
-    resolved_to_lower = 0
-    resolved_to_approved = 0
-    resolved_to_excluded = 0
-
-    # v34: محاولة تحليل AI أولاً (أكثر دقة)
-    try:
-        from engines.ai_engine import auto_resolve_review_v2
-        ai_results = auto_resolve_review_v2(review_df, batch_size=5)
-        if ai_results:
-            for idx, ai_res in ai_results.items():
-                if idx in review_df.index and ai_res.get("confidence", 0) >= 75:
-                    row = review_df.loc[idx].copy()
-                    dec = ai_res["decision"]
-                    if "أعلى" in dec or dec.startswith("🔴"):
-                        row["القرار"] = f"🔴 سعر أعلى (AI {ai_res['confidence']}%)"
-                        results["price_raise"] = pd.concat(
-                            [results["price_raise"], row.to_frame().T], ignore_index=True)
-                        resolved_to_raise += 1
-                    elif "أقل" in dec or dec.startswith("🟢"):
-                        row["القرار"] = f"🟢 سعر أقل (AI {ai_res['confidence']}%)"
-                        results["price_lower"] = pd.concat(
-                            [results["price_lower"], row.to_frame().T], ignore_index=True)
-                        resolved_to_lower += 1
-                    elif "موافق" in dec or dec.startswith("✅"):
-                        row["القرار"] = f"✅ موافق (AI {ai_res['confidence']}%)"
-                        results["approved"] = pd.concat(
-                            [results["approved"], row.to_frame().T], ignore_index=True)
-                        resolved_to_approved += 1
-                    elif "مستبعد" in dec or dec.startswith("⚪"):
-                        row["القرار"] = f"⚪ مستبعد (AI: {ai_res['reason'][:50]})"
-                        results["excluded"] = pd.concat(
-                            [results["excluded"], row.to_frame().T], ignore_index=True)
-                        resolved_to_excluded += 1
-                    # إزالة من review
-                    review_df = review_df.drop(idx)
-    except Exception as e:
-        import logging
-        logging.warning(f"auto_resolve_review_v2 failed: {e}")
-
-    # تحديث الإجمالي بعد حسم AI (المتبقي يُمرّر للحسم بالدفعات)
-    total_review = len(review_df)
-    if review_df.empty:
-        results["review"] = pd.DataFrame()
-        results["all"] = pd.concat([
-            results.get("price_raise", pd.DataFrame()),
-            results.get("price_lower", pd.DataFrame()),
-            results.get("approved", pd.DataFrame()),
-            results.get("review", pd.DataFrame()),
-            results.get("excluded", pd.DataFrame()),
-        ], ignore_index=True)
-        _log_resolve.info(
-            "AUTO_RESOLVE_REVIEW (AI only): raise=%d, lower=%d, approved=%d, excluded=%d",
-            resolved_to_raise, resolved_to_lower, resolved_to_approved, resolved_to_excluded,
-        )
-        return results
-
-    BATCH_SIZE = 30
-    all_rows = review_df.reset_index(drop=True)
-
-    for batch_start in range(0, total_review, BATCH_SIZE):
-        batch_end = min(batch_start + BATCH_SIZE, total_review)
-        batch_df = all_rows.iloc[batch_start:batch_end]
-
-        # بناء قائمة المدخلات بصيغة reclassify_review_items
-        batch_items = []
-        for _, row in batch_df.iterrows():
-            batch_items.append({
-                "our": str(row.get("المنتج", "")),
-                "comp": str(row.get("منتج_المنافس", "")),
-                "our_price": float(row.get("السعر", 0) or 0),
-                "comp_price": float(row.get("سعر_المنافس", 0) or 0),
-            })
-
-        # استدعاء AI بالدفعة
-        try:
-            rc_results = reclassify_review_items(batch_items)
-        except Exception:
-            rc_results = []
-
-        # بناء خريطة idx → section من نتائج AI
-        resolved_map = {}  # idx (1-based) → section string
-        for rc in rc_results:
-            try:
-                idx = int(rc.get("idx", 0) or 0)
-            except Exception:
-                idx = 0
-            if 1 <= idx <= len(batch_items):
-                resolved_map[idx] = rc.get("section", "")
-
-        # توزيع كل صف في الدفعة
-        for local_i, (_, row) in enumerate(batch_df.iterrows()):
-            ai_section = resolved_map.get(local_i + 1, "")
-            row_copy = row.copy()
-
-            if "أعلى" in ai_section:
-                row_copy["القرار"] = "🔴 سعر أعلى"
-                results["price_raise"] = pd.concat(
-                    [results["price_raise"], row_copy.to_frame().T], ignore_index=True)
-                resolved_to_raise += 1
-            elif "أقل" in ai_section:
-                row_copy["القرار"] = "🟢 سعر أقل"
-                results["price_lower"] = pd.concat(
-                    [results["price_lower"], row_copy.to_frame().T], ignore_index=True)
-                resolved_to_lower += 1
-            elif "موافق" in ai_section:
-                row_copy["القرار"] = "✅ موافق"
-                results["approved"] = pd.concat(
-                    [results["approved"], row_copy.to_frame().T], ignore_index=True)
-                resolved_to_approved += 1
-            else:
-                # مفقود / تحت المراجعة / فشل AI / أي شيء آخر → excluded
-                row_copy["القرار"] = "⚪ مستبعد — حسم آلي: ليس نفس المنتج"
-                results["excluded"] = pd.concat(
-                    [results["excluded"], row_copy.to_frame().T], ignore_index=True)
-                resolved_to_excluded += 1
-
-    # إفراغ سلة review
-    results["review"] = pd.DataFrame()
-
-    # تحديث all بعد إعادة التوزيع
-    results["all"] = pd.concat([
-        results.get("price_raise", pd.DataFrame()),
-        results.get("price_lower", pd.DataFrame()),
-        results.get("approved", pd.DataFrame()),
-        results.get("review", pd.DataFrame()),
-        results.get("excluded", pd.DataFrame()),
-    ], ignore_index=True)
-
-    _log_resolve.info(
-        "AUTO_RESOLVE_REVIEW: total=%d → raise=%d, lower=%d, approved=%d, excluded=%d",
-        total_review, resolved_to_raise, resolved_to_lower,
-        resolved_to_approved, resolved_to_excluded,
-    )
-    return results
-
-
 def _reconciliation_check(results: dict) -> dict:
     """
     تحقّق حفظ البيانات:
@@ -1384,7 +1234,7 @@ def _dedup_missing_display(df: "pd.DataFrame") -> "tuple":
 def _render_analysis_job_progress_live() -> None:
     """v31-fix: auto-refresh progress + flag results on completion.
     
-    CRITICAL FIX: لا نستدعي _auto_resolve_review هنا (طلبات AI بطيئة تسبب
+    CRITICAL FIX: لا نستدعي الحسم الآلي لسلة المراجعة بالـ AI هنا (طلبات AI بطيئة تسبب
     timeout/OOM داخل fragment). ولا نستدعي st.rerun() (يسبب حلقة لا نهائية
     داخل fragment). بدلاً من ذلك نُعيّن flag في session_state ليُطبَّق
     في الدورة التالية خارج الـ fragment.
@@ -1408,7 +1258,7 @@ def _render_analysis_job_progress_live() -> None:
                 _df = pd.DataFrame(_rs)
                 _mdf = pd.DataFrame(job.get("missing", [])) if job.get("missing") else pd.DataFrame()
                 _sp = _split_results(_df)
-                # ⚠️ لا نستدعي _auto_resolve_review هنا — يُؤجَّل للشريط الجانبي
+                # ⚠️ لا نستدعي الحسم الآلي لسلة المراجعة بالـ AI هنا — يُؤجَّل للشريط الجانبي
                 _sp["missing"] = _mdf
                 _sp = _dedup_missing_vs_matched(_sp)
                 st.session_state.results = _sp
@@ -1652,7 +1502,7 @@ def _safe_auto_restore():
         _auto_miss = pd.DataFrame(_auto_job.get("missing", [])) if _auto_job.get("missing") else pd.DataFrame()
 
         # تقسيم النتائج (سريع، محلي، بلا AI).
-        # ⚠️ لا نستدعي _auto_resolve_review هنا: فهو يُطلق نداءات AI متزامنة
+        # ⚠️ لا نستدعي الحسم الآلي لسلة المراجعة بالـ AI هنا: فهو يُطلق نداءات AI متزامنة
         # (auto_resolve_review_v2) كانت تُعلّق التطبيق عند كل فتح جلسة (شاشة سوداء
         # على Railway) وتستهلك حصة AI. الحسم بالـ AI يتم أثناء التحليل الفعلي فقط،
         # لا أثناء الاستعادة السلبية عند فتح التطبيق.
@@ -3500,7 +3350,7 @@ with st.sidebar:
                                     _miss_log.warning("Auto missing calc failed: %s", _miss_err)
                                     missing_df = pd.DataFrame()
                             _r = _split_results(df_all)
-                            # ⚠️ لا نستدعي _auto_resolve_review هنا: فهو يُطلق نداءات AI
+                            # ⚠️ لا نستدعي الحسم الآلي لسلة المراجعة بالـ AI هنا: فهو يُطلق نداءات AI
                             # متزامنة (auto_resolve_review_v2) داخل رسم الشريط الجانبي،
                             # فتُعلّق التطبيق عند فتح/استعادة الجلسة على Railway (شاشة سوداء/
                             # توقف عند ربط الـ volume الذي يحوي وظيفة done). الحسم بالـ AI
