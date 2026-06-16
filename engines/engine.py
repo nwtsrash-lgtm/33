@@ -2318,14 +2318,18 @@ def _row(product, our_price, our_id, brand, size, ptype, gender,
     NO_MATCH_THRESHOLD   = 60
     REVIEW_MAX           = MATCH_THRESHOLD if MATCH_THRESHOLD else 85
 
-    # v31.6: حد سعري ديناميكي
+    # v31.6: حد سعري ديناميكي لتسامح «✅ موافق» حسب متوسط السعر (لا رقم سحري واحد لكل الفئات)
     def _smart_price_threshold(p1, p2):
+        _DEFAULT_TOL = PRICE_TOLERANCE if PRICE_TOLERANCE else 10  # ر.س — تسامح افتراضي
+        _HIGH_AVG, _HIGH_PCT = 300, 0.05   # سعر عالٍ (≥300): تسامح = 5% من المتوسط
+        _MID_AVG = 100                      # سعر متوسط (≥100): تسامح ثابت = الافتراضي
+        _LOW_TOL = 5                        # سعر منخفض (<100): تسامح صغير ثابت (ر.س)
         if p1 <= 0 or p2 <= 0:
-            return PRICE_TOLERANCE if PRICE_TOLERANCE else 10
+            return _DEFAULT_TOL
         avg = (p1 + p2) / 2
-        if avg >= 300:  return avg * 0.05
-        elif avg >= 100: return PRICE_TOLERANCE if PRICE_TOLERANCE else 10
-        else:            return 5
+        if avg >= _HIGH_AVG:   return avg * _HIGH_PCT
+        elif avg >= _MID_AVG:  return _DEFAULT_TOL
+        else:                  return _LOW_TOL
 
     if override:
         dec = override
