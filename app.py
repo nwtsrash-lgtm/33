@@ -2141,6 +2141,46 @@ def _show_transparency_counter(total_count: int, visible_count: int, label: str 
     )
 
 
+def _section_guide(key: str) -> None:
+    """المرحلة 5/V4: دليل سريع مطوي أعلى كل قسم — يوجّه المستخدم ويقلّل الأخطاء."""
+    _guides = {
+        "dashboard": (
+            "ارفع ملفاتك ثم ابدأ التحليل. تتوزّع النتائج على الأقسام: "
+            "🔴 سعرنا أعلى · 🟢 سعرنا أقل · ✅ موافق · 🔍 مفقود · ⚠️ مراجعة · ⚪ مستبعد. "
+            "تابِع «نقطة الصحة» وبانر «لا فقدان بيانات» للاطمئنان، وأي إنذار 🚨 يعني خللاً يستحقّ المراجعة."
+        ),
+        "raise": (
+            "منتجاتنا الأغلى من أرخص منافس — فرصة خفض. لكل بطاقة: راجِع الساحة (منتجنا VS الأرخص) "
+            "وقائمة المنافسين أسفلها، ثم حدّد «🎯 السعر المستهدف» و«🚀 تحديث السعر». "
+            "الأدوات الثانوية (🤖 تحقق · 🌐 سوق · 📊 تحليل · 📈 تاريخ) داخل «⋯ أدوات». عند الشكّ في المطابقة استخدم «🤖» قبل أي قرار."
+        ),
+        "lower": (
+            "منتجاتنا الأرخص من المنافسين — فرصة رفع لزيادة الهامش. راجِع أرخص منافس في الساحة "
+            "ثم حدّد «🎯 السعر المستهدف» و«🚀 تحديث السعر». الأدوات الإضافية في «⋯ أدوات»."
+        ),
+        "approved": (
+            "أسعار تنافسية مناسبة — لا إجراء مطلوب غالباً. استخدم «✅ موافق» للتثبيت، وراجِع عند تغيّر السوق."
+        ),
+        "review": (
+            "مطابقات غير مؤكّدة (نسبة 60–85%). راجِعها يدوياً أو بزر «🤖» قبل أي قرار سعري — "
+            "لا تُرسِل تحديث سعر قبل التأكد من صحّة المطابقة."
+        ),
+        "missing": (
+            "منتجات لدى المنافسين وغير موجودة عندنا. تحقّق من صندوق «🔍 لديك منتج مشابه» قبل الإضافة "
+            "لتفادي التكرار. زر «🤖 تحقّق AI» يحسم «المحتمل امتلاكه». للتصدير لسلة استخدم «🚀 تجهيز سريع — المفقودات المؤكدة»."
+        ),
+        "excluded": (
+            "منتجاتنا التي لم تدخل أي سلة سعرية، مع سبب الاستبعاد لكل منتج (للعرض والمراجعة فقط — لا منافس يُقارَن). "
+            "استخدم فلتر السبب لتصفيتها، و«📥 تصدير المستبعدة» لتنزيلها."
+        ),
+    }
+    _txt = _guides.get(key)
+    if not _txt:
+        return
+    with st.expander("📖 دليل سريع", expanded=False):
+        st.markdown(_txt)
+
+
 # ════════════════════════════════════════════════
 #  Callbacks — أحداث الأزرار التفاعلية (Event-Driven)
 #  تُعرَّف هنا (خارج حلقة الرسم) حتى تتوافق مع on_click.
@@ -3468,6 +3508,7 @@ if page == "✨ مصنع المنتجات":
 if page == "📊 لوحة التحكم":
     st.header("📊 لوحة التحكم")
     db_log("dashboard", "view")
+    _section_guide("dashboard")
     # المرحلة 5/C8: طُويت لوحة المحاسبة التفصيلية (audit + reconciliation) في
     # expander مطوي لتقليل ازدحام أعلى لوحة التحكم. بانر «لا فقدان بيانات»
     # المختصر أدناه يبقى ظاهراً للحالة السريعة، والإنذارات 🚨 تبقى ظاهرة دائماً.
@@ -4482,6 +4523,7 @@ elif page == "🔴 سعر أعلى":
     )
     st.header("منتجات سعرنا أعلى")
     db_log("price_raise", "view")
+    _section_guide("raise")
     if st.session_state.results and "price_raise" in st.session_state.results:
         df = st.session_state.results["price_raise"]
         _price_raise_total = len(df) if isinstance(df, pd.DataFrame) else 0  # FIX: Transparency & Reversibility
@@ -4525,6 +4567,7 @@ elif page == "🔴 سعر أعلى":
 elif page == "🟢 سعر أقل":
     st.header("🟢 منتجات سعرنا أقل — فرصة رفع")
     db_log("price_lower", "view")
+    _section_guide("lower")
     if st.session_state.results and "price_lower" in st.session_state.results:
         df = st.session_state.results["price_lower"]
         _price_lower_total = len(df) if isinstance(df, pd.DataFrame) else 0  # FIX: Transparency & Reversibility
@@ -4563,6 +4606,7 @@ elif page == "🟢 سعر أقل":
 elif page == "✅ موافق عليها":
     st.header("✅ منتجات موافق عليها")
     db_log("approved", "view")
+    _section_guide("approved")
     if st.session_state.results and "approved" in st.session_state.results:
         df = st.session_state.results["approved"]
         _approved_total = len(df) if isinstance(df, pd.DataFrame) else 0  # FIX: Transparency & Reversibility
@@ -4584,6 +4628,7 @@ elif page == "✅ موافق عليها":
 # ════════════════════════════════════════════════
 elif page == "🔍 منتجات مفقودة":
     st.header("🔍 منتجات المنافسين غير الموجودة عندنا")
+    _section_guide("missing")
     _debug_log("H2", "app.py:missing_page_entry", "Entered missing page", {
         "has_results": bool(st.session_state.results),
         "has_missing_key": bool(st.session_state.results and "missing" in st.session_state.results),
@@ -6265,6 +6310,7 @@ elif page == "⚠️ تحت المراجعة":
     st.header("⚠️ منتجات تحت المراجعة")
     st.caption("مطابقات غير مؤكّدة (نسبة 60–85%) — راجِعها يدوياً أو بالذكاء الاصطناعي قبل أي قرار سعري")
     db_log("review", "view")
+    _section_guide("review")
     if st.session_state.results and "review" in st.session_state.results:
         df = st.session_state.results["review"]
         _review_total = len(df) if isinstance(df, pd.DataFrame) else 0  # FIX: Transparency & Reversibility
@@ -6287,6 +6333,7 @@ elif page == "⚪ المستبعدة":
     st.header("⚪ المنتجات المستبعدة")
     st.caption("منتجاتنا التي لم تدخل أي سلة سعرية — مع سبب الاستبعاد لكل منتج")
     db_log("excluded", "view")
+    _section_guide("excluded")
     _exc_df = None
     if st.session_state.results and isinstance(st.session_state.results, dict):
         _exc_df = st.session_state.results.get("excluded")
