@@ -6297,8 +6297,9 @@ elif page == "⚪ المستبعدة":
         _exc_view["__reason__"] = _reason
 
         # عدّاد + توزيع الأسباب (أرقام حقيقية)
-        render_kpi_row({"total": len(_exc_view), "raise": 0, "lower": 0,
-                        "approved": 0, "missing": 0})
+        # المرحلة 5/C4: كان render_kpi_row يعرض أعلى/أقل/موافق/مفقود = أصفاراً
+        # مضلِّلة في صفحة المستبعدة. يكفي عدّاد إجمالي واحد + توزيع الأسباب أدناه.
+        st.metric("⚪ إجمالي المستبعدة", f"{len(_exc_view):,}")
         _reason_counts = _reason.value_counts()
         _c1, _c2 = st.columns([1, 2])
         with _c1:
