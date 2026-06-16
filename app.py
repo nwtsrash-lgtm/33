@@ -2794,7 +2794,12 @@ def render_pro_table(
         if prefix in ("raise", "lower"):
             # b1:AI, b2:Market, b3:OK, b4:Defer, b9:History, ba:Analyze
             # (زر «🔍 تحقق» b8 أُزيل — مكرر وظيفياً مع b1 الذي يستدعي verify_match نفسه)
-            b1, b2, b3, b4, b9, ba = st.columns([1, 1, 1, 1, 1, 1])
+            # المرحلة 5/C6: الأساسي «✅ موافق» (b3) يبقى ظاهراً في عمود ضيّق
+            # (إلى جانب 🚀/🗑️ في شريط الإجراءات أعلاه)؛ الأدوات الثانوية
+            # (🤖/🌐/⏸️/📈/📊) تُطوى في expander «⋯ أدوات» لتقليل ازدحام البطاقة.
+            b3, _b3_sp = st.columns([1, 5])
+            with st.expander("⋯ أدوات", expanded=False):
+                b1, b2, b4, b9, ba = st.columns(5)
         elif prefix == "approved":
             # b1:AI, b2:Market, b3:OK, b4:Defer, b5:Remove, b6:Price, b7:Make
             b1, b2, b3, b4, b5, b6, b7 = st.columns(7)
