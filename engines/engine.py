@@ -2344,7 +2344,7 @@ def _row(product, our_price, our_id, brand, size, ptype, gender,
             elif diff < -_pt:    dec = "🟢 سعر أقل"
             else:                dec = "✅ موافق"
         else:
-            dec = "🔍 منتجات مفقودة"  # v31.6: لا سعر → مفقود
+            dec = "⚠️ تحت المراجعة — بلا سعر منافس"  # P5: مطابَق مؤكّد بلا سعر → مراجعة لا «مفقود»
     else:
         # 60% ≤ score < 85% → مطابقة محتملة → تحت المراجعة
         dec = f"⚠️ تحت المراجعة ({score:.0f}%)"
