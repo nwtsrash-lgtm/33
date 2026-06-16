@@ -596,8 +596,11 @@ def miss_card(name=None, price=0, brand="", size="", ptype="", comp="", suggeste
 
 
 def miss_card_v2(data: dict) -> str:
-    """
-    بطاقة منتج مفقود v2 — تعرض كل منافس ببطاقة فرعية داخلية + مقياس سعري بصري.
+    """بطاقة منتج مفقود بنمط ساحة بطاقة السعر (المرحلة 5/M1).
+
+    الحالة 1 (مشتبه به — لدينا منتج مشابه): ساحة متقابلة «منتجنا المشابه VS
+    المنتج المفقود» (اسم+صورة+سعر لكلٍّ) + شريط المنافسين أسفلها.
+    الحالة 2 (مفقود مؤكد — لا مشابه): بطاقة واحدة في الوسط للمنتج المفقود.
     """
     # ── استخراج البيانات ──
     name = str(data.get("منتج_المنافس", "") or "")
@@ -612,40 +615,42 @@ def miss_card_v2(data: dict) -> str:
     if not isinstance(competitors, list):
         competitors = []
     n_comp = len(competitors) or int(data.get("عدد_المنافسين", 1) or 1)
-    variant_type = str(data.get("نوع_متاح", "") or "")
-    variant_product = str(data.get("منتج_متاح", "") or "")
-    variant_score = _safe_float(data.get("نسبة_التشابه", 0))
-    potential_match = str(data.get("منتج_مطابق_محتمل", "") or "")
     sim_score = _safe_float(data.get("درجة_التشابه", 0))
-    # ── ألوان الثقة ──
+    variant_score = _safe_float(data.get("نسبة_التشابه", 0))
+    # ── ألوان الثقة/الأولوية ──
     _cc = {
-        "green":  ("#00c853", "مفقود مؤكد",   "🟢"),
-        "review": ("#2979ff", "محتمل موجود",  "🔵"),
-        "yellow": ("#ffc107", "محتمل",         "🟡"),
-        "red":    ("#f44336", "مشكوك فيه",     "🔴"),
+        "green":  ("#00c853", "مفقود مؤكد",  "🟢"),
+        "review": ("#2979ff", "محتمل موجود", "🔵"),
+        "yellow": ("#ffc107", "محتمل",        "🟡"),
+        "red":    ("#f44336", "مشكوك فيه",    "🔴"),
     }
     c_color, c_text, c_icon = _cc.get(conf, _cc["green"])
-    # ── ألوان الأولوية ──
     p_color = ("#f44336" if priority >= 80 else "#ff9800" if priority >= 60 else
                "#ffc107" if priority >= 40 else "#4caf50")
-    # ── نطاق السعر + مقياس بصري ──
+    # ── أسعار المنافسين (لتقدير سعر المفقود عند غياب القيمة المُمرَّرة) ──
     prices = [float(c.get("السعر", 0) or 0) for c in competitors if float(c.get("السعر", 0) or 0) > 0]
     mn_p = min(prices) if prices else 0
-    mx_p = max(prices) if prices else 0
-    avg_p = round(sum(prices) / len(prices), 0) if prices else 0
-    price_range = f"{mn_p:.0f}" if mn_p == mx_p else f"{mn_p:.0f} – {mx_p:.0f}"
-    _ref_max = max(mx_p * 1.3, 500)
-    pct_min = min(mn_p / _ref_max * 100, 95) if _ref_max > 0 else 10
-    pct_max = min(mx_p / _ref_max * 100, 98) if _ref_max > 0 else 50
-    pct_width = max(pct_max - pct_min, 3)
-    price_bar = f'''
-    <div style="position:relative;height:8px;background:#1a1a2e;border-radius:4px;margin:8px 0 12px;overflow:hidden;">
-        <div style="position:absolute;left:{pct_min:.0f}%;width:{pct_width:.0f}%;height:100%;
-                    background:linear-gradient(90deg,{c_color}88,{c_color});border-radius:4px;"></div>
-    </div>
-    <div style="display:flex;justify-content:space-between;font-size:10px;color:#666;margin-top:-6px;">
-        <span>0</span><span>{avg_p:.0f} ر.س متوسط</span><span>{_ref_max:.0f}</span>
-    </div>''' if len(prices) > 1 else ""
+    # ── المنتج المفقود: صورة/سعر/متجر (مُمرَّر أو أرخص منافس) ──
+    _first_comp = competitors[0] if competitors else {}
+    miss_img = (str(data.get("صورة_المفقود", "") or "").strip()
+                or str(_first_comp.get("الصورة", "") or "").strip())
+    miss_price = (_safe_float(data.get("سعر_المفقود", 0)) or mn_p
+                  or _safe_float(_first_comp.get("السعر", 0)))
+    miss_store = str(_first_comp.get("المنافس", "") or "").strip()
+    # ── منتجنا المشابه (الحالة 1 — يصل من app.py) ──
+    our_sim_name = str(data.get("منتجنا_مشابه_اسم", "") or "").strip()
+    our_sim_img = str(data.get("منتجنا_مشابه_صورة", "") or "").strip()
+    our_sim_price = _safe_float(data.get("منتجنا_مشابه_سعر", 0))
+    our_sim_pct = _safe_float(data.get("منتجنا_مشابه_نسبة", 0)) or sim_score or variant_score
+    is_suspected = bool(our_sim_name)
+
+    def _mimg(u, border):
+        if u and u.startswith("http"):
+            return _img_tag(u, 110, 110, border, 12, fit="contain")
+        return (f'<div style="width:110px;height:110px;border-radius:12px;background:#111827;'
+                f'border:1px solid {border};display:flex;align-items:center;'
+                f'justify-content:center;font-size:34px;color:#475569">🧴</div>')
+
     # ── بطاقات المنافسين الفرعية ──
     comp_html = ""
     for i, c in enumerate(competitors):
@@ -696,89 +701,68 @@ def miss_card_v2(data: dict) -> str:
             </div>
             {link_block}
         </div>'''
-    # ── شريط variant/similar ──
-    var_html = ""
-    if variant_type and variant_product:
-        _vc = "#F59E0B" if "تستر" in variant_type else "#10B981"
-        var_html = f'''
-        <div style="background:{_vc}14;border:1px solid {_vc}55;border-right:4px solid {_vc};
-                    border-radius:10px;padding:10px 14px;margin-top:10px;">
-            <div style="font-size:12.5px;font-weight:800;color:{_vc};margin-bottom:3px;
-                        display:flex;align-items:center;gap:6px;">
-                ⚠️ {_html_escape(variant_type)} لديك
-                <span style="color:#64748b;font-weight:600;">({variant_score:.0f}% تشابه)</span>
-            </div>
-            <div style="font-size:13px;color:#e2e8f0;font-weight:700;line-height:1.45;">
-                {_html_escape(variant_product[:70])}
-            </div>
-        </div>'''
-    # المرحلة 5/V3: إبراز «المشابه لدينا» كصندوق واضح (اسم المنتج في سطر مستقل
-    # بخط أكبر + تلميح للمراجعة) بدل سطر صغير — لتقليل خطر إضافة منتج مكرّر.
-    pot_html = ""
-    if potential_match and sim_score > 50:
-        pot_html = f'''
-        <div style="background:#1e3a5f24;border:1px solid #3b82f655;border-right:4px solid #3b82f6;
-                    border-radius:10px;padding:10px 14px;margin-top:6px;">
-            <div style="font-size:12.5px;font-weight:800;color:#60a5fa;margin-bottom:3px;
-                        display:flex;align-items:center;gap:6px;">
-                🔍 لديك منتج مشابه
-                <span style="color:#64748b;font-weight:600;">({sim_score:.0f}% تشابه)</span>
-            </div>
-            <div style="font-size:13px;color:#e2e8f0;font-weight:700;line-height:1.45;">
-                {_html_escape(potential_match[:70])}
-            </div>
-            <div style="font-size:10.5px;color:#94a3b8;margin-top:4px;">
-                راجِع قبل الإضافة لتفادي التكرار
-            </div>
-        </div>'''
-    # ── البطاقة الرئيسية ──
+    # ── جسم البطاقة: ساحة متقابلة (الحالة 1) أو بطاقة واحدة وسطية (الحالة 2) ──
+    if is_suspected:
+        body_html = f'''<div class="v32-arena" dir="rtl">
+<div class="v32-side" style="border-color:#3b82f6;background:rgba(59,130,246,0.06)">
+<span class="v32-side-label" style="background:#1e3a8a;color:#bfdbfe">منتجنا (مشابه)</span>
+<div class="v32-side-name" title="{_html_escape(our_sim_name, quote=True)}">{_html_escape(our_sim_name[:45]) or '—'}</div>
+{_mimg(our_sim_img, "#3b82f6")}
+<div class="v32-big-price" style="color:#60a5fa">{our_sim_price:,.0f}</div>
+<div class="v32-currency">ر.س</div>
+</div>
+<div class="v32-vs-col">
+<div class="v32-vs-icon" style="color:{c_color}">🔍</div>
+<div class="v32-vs-text" style="color:{c_color}">VS</div>
+<div class="v32-diff-label" style="color:{c_color}">{our_sim_pct:.0f}% تشابه · راجِع قبل الإضافة</div>
+</div>
+<div class="v32-side" style="border-color:{c_color};background:{c_color}10">
+<span class="v32-side-label" style="background:#1f2937;color:#94a3b8">{_html_escape((miss_store or 'مفقود')[:18])}</span>
+<div class="v32-side-name" title="{_html_escape(name, quote=True)}">{_html_escape(name[:45]) or '—'}</div>
+{_mimg(miss_img, c_color)}
+<div class="v32-big-price" style="color:{c_color}">{miss_price:,.0f}</div>
+<div class="v32-currency">ر.س</div>
+</div>
+</div>'''
+    else:
+        body_html = f'''<div class="miss-solo" dir="rtl">
+<div class="miss-solo-card" style="border-color:{c_color};background:{c_color}10">
+<span class="v32-side-label" style="background:#1f2937;color:#94a3b8">{_html_escape((miss_store or 'المنافس')[:20])}</span>
+<div class="v32-side-name" title="{_html_escape(name, quote=True)}">{_html_escape(name[:70]) or '—'}</div>
+{_mimg(miss_img, c_color)}
+<div class="v32-big-price" style="color:{c_color}">{miss_price:,.0f}</div>
+<div class="v32-currency">ر.س</div>
+</div>
+</div>'''
+    # ── شريط المنافسين أسفل البطاقة (أفقي، ظاهر دائماً) ──
+    comps_block = (
+        f'<div class="v32-comps-head" style="margin-top:10px">👥 المنافسون ({n_comp})</div>'
+        f'<div style="overflow-x:auto;padding:4px 0 8px;-webkit-overflow-scrolling:touch;'
+        f'scrollbar-width:thin;scrollbar-color:#334155 transparent">'
+        f'<div style="display:flex;gap:10px;min-width:min-content;padding:2px">{comp_html}</div>'
+        f'</div>'
+    ) if comp_html else ""
+    # ── الغلاف: رأس (شارات + اسم + ميتا) + الجسم + المنافسون ──
     _comp_word = "منافس" if n_comp <= 2 else ("منافسين" if n_comp <= 10 else "منافس")
-    _miss_html = f'''
-    <div style="background:linear-gradient(135deg,#0a0a1a 0%,#0d1117 50%,#111827 100%);
-                border-radius:18px;padding:20px;margin-bottom:14px;
-                border:1px solid {c_color}22;
-                box-shadow:0 4px 24px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.03);"
-         dir="rtl">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:6px;">
-            <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
-                <span style="background:{p_color}14;color:{p_color};padding:4px 12px;
-                             border-radius:20px;font-size:12px;font-weight:800;
-                             border:1px solid {p_color}33;letter-spacing:0.5px;">
-                    ⚡ {priority}
-                </span>
-                <span style="background:{c_color}14;color:{c_color};padding:4px 12px;
-                             border-radius:20px;font-size:12px;font-weight:700;
-                             border:1px solid {c_color}33;">
-                    {c_icon} {c_text}
-                </span>
-                {"<span style='background:#9333ea14;color:#c084fc;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #9333ea33;'>🧪 تستر</span>" if is_tester else ""}
-            </div>
-            <span style="color:#64748b;font-size:12px;font-weight:600;">
-                🏪 {n_comp} {_comp_word}
-            </span>
-        </div>
-        <h3 style="color:#e2e8f0;font-size:16px;margin:0 0 10px;font-weight:800;line-height:1.5;">
-            {_html_escape(name[:120])}
-        </h3>
-        <div style="display:flex;flex-wrap:wrap;gap:10px;color:#94a3b8;font-size:12px;margin-bottom:6px;">
-            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>🏷️ " + _html_escape(brand) + "</span>" if brand and brand.lower() not in ("nan","none","") else ""}
-            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>📏 " + _html_escape(size) + "</span>" if size and size.lower() not in ("nan","none","") else ""}
-            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>💧 " + _html_escape(ptype) + "</span>" if ptype and ptype.lower() not in ("nan","none","") else ""}
-            {"<span style='background:#1e293b;padding:2px 8px;border-radius:6px;'>👤 " + _html_escape(gender) + "</span>" if gender and gender.lower() not in ("nan","none","") else ""}
-        </div>
-        <div style="color:#66bb6a;font-size:15px;font-weight:800;margin:8px 0 2px;">
-            💰 {price_range} <span style="font-size:12px;color:#81c784;font-weight:600;">ر.س</span>
-        </div>
-        {price_bar}
-        <div style="overflow-x:auto;padding:4px 0 8px;-webkit-overflow-scrolling:touch;
-                    scrollbar-width:thin;scrollbar-color:#334155 transparent;">
-            <div style="display:flex;gap:10px;min-width:min-content;padding:2px;">
-                {comp_html}
-            </div>
-        </div>
-        {var_html}
-        {pot_html}
-    </div>'''
+    _miss_html = f'''<div style="background:linear-gradient(135deg,#0a0a1a 0%,#0d1117 50%,#111827 100%);border-radius:18px;padding:18px;margin-bottom:14px;border:1px solid {c_color}22;box-shadow:0 4px 24px rgba(0,0,0,0.3),inset 0 1px 0 rgba(255,255,255,0.03)" dir="rtl">
+<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:6px">
+<div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+<span style="background:{p_color}14;color:{p_color};padding:4px 12px;border-radius:20px;font-size:12px;font-weight:800;border:1px solid {p_color}33;letter-spacing:0.5px">⚡ {priority}</span>
+<span style="background:{c_color}14;color:{c_color};padding:4px 12px;border-radius:20px;font-size:12px;font-weight:700;border:1px solid {c_color}33">{c_icon} {c_text}</span>
+{"<span style='background:#9333ea14;color:#c084fc;padding:4px 10px;border-radius:20px;font-size:11px;font-weight:700;border:1px solid #9333ea33'>🧪 تستر</span>" if is_tester else ""}
+</div>
+<span style="color:#64748b;font-size:12px;font-weight:600">🏪 {n_comp} {_comp_word}</span>
+</div>
+<h3 style="color:#e2e8f0;font-size:16px;margin:0 0 8px;font-weight:800;line-height:1.5">{_html_escape(name[:120])}</h3>
+<div style="display:flex;flex-wrap:wrap;gap:8px;color:#94a3b8;font-size:12px;margin-bottom:4px">
+{"<span style='background:#1e293b;padding:2px 8px;border-radius:6px'>🏷️ " + _html_escape(brand) + "</span>" if brand and brand.lower() not in ("nan","none","") else ""}
+{"<span style='background:#1e293b;padding:2px 8px;border-radius:6px'>📏 " + _html_escape(size) + "</span>" if size and size.lower() not in ("nan","none","") else ""}
+{"<span style='background:#1e293b;padding:2px 8px;border-radius:6px'>💧 " + _html_escape(ptype) + "</span>" if ptype and ptype.lower() not in ("nan","none","") else ""}
+{"<span style='background:#1e293b;padding:2px 8px;border-radius:6px'>👤 " + _html_escape(gender) + "</span>" if gender and gender.lower() not in ("nan","none","") else ""}
+</div>
+{body_html}
+{comps_block}
+</div>'''
     return _no_blank_lines(_miss_html)
 
 
@@ -1339,5 +1323,7 @@ _V32_CSS = """<style>
 .exc-card-brand{font-size:.68rem;color:#818CF8;background:rgba(99,102,241,.1);padding:1px 7px;border-radius:4px}
 .exc-card-price{font-size:.85rem;font-weight:800;color:#94A3B8}
 .exc-card-reason{font-size:.7rem;color:#94A3B8;background:rgba(148,163,184,.08);border-radius:8px;padding:6px 10px;line-height:1.4}
+.miss-solo{display:flex;justify-content:center;padding:12px 0 4px}
+.miss-solo-card{display:flex;flex-direction:column;align-items:center;gap:6px;border:2px solid;border-radius:12px;padding:16px 18px;max-width:300px;position:relative}
 @media (max-width:640px){.v32-arena{flex-direction:column;gap:12px}.v32-vs-col{flex-direction:row;padding:8px 0;min-width:unset}.v32-big-price{font-size:1.4rem}.miss-card-inner{flex-direction:column}.exc-grid{grid-template-columns:1fr}}
 </style>"""
