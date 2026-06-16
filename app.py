@@ -4573,6 +4573,11 @@ elif page == "✅ موافق عليها":
     db_log("approved", "view")
     if st.session_state.results and "approved" in st.session_state.results:
         df = st.session_state.results["approved"]
+        _approved_total = len(df) if isinstance(df, pd.DataFrame) else 0  # FIX: Transparency & Reversibility
+        if isinstance(df, pd.DataFrame) and not df.empty and "معرف_المنتج" in df.columns:
+            _proc_price = {str(x) for x in st.session_state.get("processed_price_skus", set())}
+            df = df[~df["معرف_المنتج"].astype(str).isin(_proc_price)]  # FIX: Smart Workflow & AI Tracking
+        _show_transparency_counter(_approved_total, len(df) if isinstance(df, pd.DataFrame) else 0)  # FIX: Transparency & Reversibility
         if not df.empty:
             st.success(f"✅ {len(df)} منتج بأسعار تنافسية مناسبة")
             render_pro_table_v32(df, "approved", "approved")
