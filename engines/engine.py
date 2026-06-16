@@ -27,7 +27,7 @@ from engines.mahwous_core import apply_strict_pipeline_filters
 # ─── استيراد الإعدادات ───────────────────────
 try:
     from config import (REJECT_KEYWORDS, KNOWN_BRANDS, WORD_REPLACEMENTS,
-                        MATCH_THRESHOLD, HIGH_CONFIDENCE, REVIEW_THRESHOLD,
+                        MATCH_THRESHOLD, HIGH_CONFIDENCE,
                         PRICE_TOLERANCE, TESTER_KEYWORDS, SET_KEYWORDS,
                         GEMINI_API_KEYS, OPENROUTER_API_KEY)
 except Exception:
@@ -76,7 +76,6 @@ except Exception:
     WORD_REPLACEMENTS  = {}
     MATCH_THRESHOLD    = 85
     HIGH_CONFIDENCE    = 95
-    REVIEW_THRESHOLD   = 75
     PRICE_TOLERANCE    = 5
     TESTER_KEYWORDS    = ["tester", "تستر"]
     SET_KEYWORDS       = ["set", "طقم", "مجموعة"]
