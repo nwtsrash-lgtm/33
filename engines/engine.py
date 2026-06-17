@@ -2605,6 +2605,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
         "skipped_empty": 0,
         "skipped_samples": 0,
         "no_competitor_found": 0,
+        "excluded_sets": 0,
     }
     our_col       = _name_col_for_analysis(our_df)
     our_price_col = _fcol(our_df, ["سعر المنتج","السعر","سعر","Price","price","PRICE"])
@@ -2772,6 +2773,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
         # v31.11b: المجموعات والطقم لا تُقارن مع عطور فردية — تُستبعد مباشرة
         _is_our_set = any(w in product.lower() for w in ('مجموعة','مجموعه','طقم'))
         if _is_our_set or _product_class == 'set':
+            audit_stats["excluded_sets"] += 1
             results.append(_excluded_match_row(
                 product, 0.0, _pid(row, our_id_col), "", extract_size(product), "", "",
                 our_img=_cell_clean(row, our_img_col),
