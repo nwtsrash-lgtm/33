@@ -773,6 +773,26 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     _db = _cm_os.path.join(_cm_os.environ.get("DATA_DIR", "data"), "pricing_v18.db")
     if not _cm_os.path.exists(_db):
         return pd.DataFrame()
+    # F4 — تخزين قرصي دائم: النتيجة تُحسب مرة وتُحفظ على القرص (Railway volume) فلا
+    # تُعاد الحوسبة الثقيلة عند كل دخول للقسم أو إعادة تشغيل العملية (ذاكرة @st.cache_data
+    # تُفقد عند إعادة التشغيل وتنتهي بعد 30د). المفتاح = توقيع المدخلات (حجم الكتالوج +
+    # حجم قاعدة المخزن + نسخة المنطق)؛ أي تغيّر فيها ⇒ توقيع جديد ⇒ إعادة حساب. زر
+    # «إعادة حساب» يحذف الملف يدوياً. (الإصدار F4v1 يتجاهل أي ملف قديم بتوقيع مختلف.)
+    _cache_pkl = _cm_os.path.join(_cm_os.environ.get("DATA_DIR", "data"), "missing_cache.pkl")
+    try:
+        _sig = f"F4v1|{len(our_df)}|{_cm_os.path.getsize(_db)}"
+    except OSError:
+        _sig = ""
+    if _sig and _cm_os.path.exists(_cache_pkl):
+        try:
+            import pickle as _pk
+            with open(_cache_pkl, "rb") as _cf:
+                _cached = _pk.load(_cf)
+            if (isinstance(_cached, dict) and _cached.get("sig") == _sig
+                    and isinstance(_cached.get("df"), pd.DataFrame)):
+                return _cached["df"]
+        except Exception:
+            pass  # ملف تالف/قديم ⇒ تجاهله واحسب من جديد
     try:
         from engines.competitor_intelligence import CompetitorIntelligence as _CIm
         _ci = _CIm(db_path=_db)
@@ -1014,6 +1034,19 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         _df_out["تفاصيل_المنافسين"] = _df_out["تفاصيل_المنافسين"].apply(
             lambda x: _json_cache.dumps(x, ensure_ascii=False) if isinstance(x, list) else "[]"
         )
+    # F4 — احفظ النتيجة على القرص للتشغيلات/الجلسات القادمة (كتابة ذرّية: ملف مؤقت ثم
+    # استبدال، فلا يُقرأ ملف نصفه مكتوب). يُحفظ المسار الناجح الكامل فقط — لا تُخزَّن
+    # الإرجاعات الفارغة المبكّرة للأخطاء. _sig مُعرَّف دائماً عند الوصول هنا.
+    if _sig:
+        try:
+            import pickle as _pk
+            _tmp = _cache_pkl + ".tmp"
+            with open(_tmp, "wb") as _cf:
+                _pk.dump({"sig": _sig, "df": _df_out}, _cf, protocol=_pk.HIGHEST_PROTOCOL)
+            _cm_os.replace(_tmp, _cache_pkl)
+        except Exception as _ce:
+            import logging as _cm_log2
+            _cm_log2.getLogger(__name__).warning("تعذّر حفظ cache المفقودات: %s", _ce)
     return _df_out
 
 
@@ -4783,6 +4816,15 @@ elif page == "🔍 منتجات مفقودة":
                     st.session_state.pop(_auto_key, None)
                     try:
                         _compute_missing_from_store.clear()
+                    except Exception:
+                        pass
+                    # F4 — احذف cache القرص أيضاً، وإلا أُعيد تحميله بلا إعادة حساب فعلي
+                    try:
+                        import os as _rm_os
+                        _rm_pkl = _rm_os.path.join(
+                            _rm_os.environ.get("DATA_DIR", "data"), "missing_cache.pkl")
+                        if _rm_os.path.exists(_rm_pkl):
+                            _rm_os.remove(_rm_pkl)
                     except Exception:
                         pass
                     st.rerun()
