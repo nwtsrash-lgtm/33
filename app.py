@@ -948,12 +948,18 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         # فكانت منتجات نملكها (تشابه 65-82% + حجم متطابق) تُصنّف «مؤكد مفقود» خطأً
         # (فيرتس سيريناد، فان كليف بريشيوس عود...). الآن تذهب لـ«مراجعة» (ظاهرة، لا تُخفى
         # ولا تُؤكَّد مفقودة) ويحسمها زر «🤖 تحقّق AI». الإخفاء (≥82%+حجم) لم يتغيّر.
+        # F2 — حارس الحجم: أي مطابقة معقولة (≥65) لعنصر لدينا تبقى «مراجعة» لا «مفقود
+        # مؤكد». كان النطاق (65-82 + حجم مختلف) يسقط خطأً إلى «مفقود مؤكد» فيظهر منتج
+        # نملكه بحجم آخر (50مل مقابل 100مل) كأنه مفقود. «مفقود مؤكد» يبقى فقط حين لا
+        # مطابقة معقولة (<65). الإخفاء (≥82+حجم متوافق) عولج بـ continue أعلاه؛ 82/65 ثابتة.
         _is_review = False
-        if (_best_it is not None
-                and ((_best_sc >= _CONFIRM and not _size_ok)
-                     or (_REVIEW_MIN <= _best_sc < _CONFIRM and _size_ok))):
+        _review_reason = ""
+        if _best_it is not None and _best_sc >= _REVIEW_MIN:
             _is_review = True
             _review += 1
+            _review_reason = ("متوفّر بحجم مختلف"
+                              if (_best_sc >= _CONFIRM and not _size_ok)
+                              else "بانتظار التحقق")
         _comp_list = p.get("competitors_list") or []
         # «المنافسون»: أسماء كل المتاجر التي تبيع هذا المنتج (بعد الدمج العالمي)
         _comp_names_joined = "، ".join([str(x).strip() for x in _comp_list if str(x).strip()])
@@ -983,7 +989,7 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
             # أقرب منتج لدينا — يُخزَّن لكل صف (مؤكد + مراجعة) لا للمراجعة فقط، كي يراه
             # المستخدم في البطاقة («🔍 مشابه لدينا: X ٪») ويفرز يدوياً بثقة، ويتيح تحقّق AI.
             "منتج_مطابق_محتمل": (_best_it["raw"] if _best_it else ""),
-            "حالة_المراجعة":  "بانتظار التحقق" if _is_review else "",
+            "حالة_المراجعة":  _review_reason,
             "هو_تستر":      _item_type(_nm) == "tester",
             "نوع_السلعة":   _item_type(_nm),   # retail / tester / sample
             "عدد_المنافسين": int(p.get("competitor_count", 1) or 1),
