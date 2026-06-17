@@ -219,25 +219,6 @@ def _cached_title_from_product_url(page_url: str) -> str:
     return fetch_page_title_from_url(page_url) or ""
 
 
-def _debug_log(hypothesis_id: str, location: str, message: str, data: dict | None = None, run_id: str = "pre-fix") -> None:
-    # region agent log
-    try:
-        payload = {
-            "sessionId": "aea738",
-            "runId": run_id,
-            "hypothesisId": hypothesis_id,
-            "location": location,
-            "message": message,
-            "data": data or {},
-            "timestamp": int(time.time() * 1000),
-        }
-        with open("debug-aea738.log", "a", encoding="utf-8") as _fh:
-            _fh.write(json.dumps(payload, ensure_ascii=False) + "\n")
-    except Exception:
-        pass
-    # endregion
-
-
 # ── إعداد الصفحة ──────────────────────────
 st.set_page_config(page_title=APP_TITLE, page_icon=APP_ICON,
                    layout="wide", initial_sidebar_state="expanded")
@@ -245,7 +226,6 @@ st.markdown(get_styles(), unsafe_allow_html=True)
 # إخفاء روابط التنقل التلقائية (app, magic factory, scraper advanced) من أعلى الشريط الجانبي
 st.markdown("<style>[data-testid='stSidebarNav'] {display: none;}</style>", unsafe_allow_html=True)
 st.markdown(get_sidebar_toggle_js(), unsafe_allow_html=True)
-_debug_log("H1", "app.py:set_page_config", "App bootstrap reached", {"app_title": APP_TITLE})
 
 # ── فحص ذاتي عند الإقلاع (يعمل مرة واحدة فقط لكل جلسة) ────────────────
 if "health_check_done" not in st.session_state:
@@ -4541,10 +4521,6 @@ elif page == "✅ موافق عليها":
 elif page == "🔍 منتجات مفقودة":
     st.header("🔍 منتجات المنافسين غير الموجودة عندنا")
     _section_guide("missing")
-    _debug_log("H2", "app.py:missing_page_entry", "Entered missing page", {
-        "has_results": bool(st.session_state.results),
-        "has_missing_key": bool(st.session_state.results and "missing" in st.session_state.results),
-    })
     # ── 🤖 الاستخراج الذكي بـ AI (محرك جديد — يدمج: مطابقة + ماركات + تصنيفات + وصف) ──
     with st.expander("🤖 استخراج ذكي بـ AI (مع ماركات + تصنيفات + وصف Mahwous)", expanded=False):
         st.markdown(
@@ -5348,10 +5324,6 @@ elif page == "🔍 منتجات مفقودة":
             c1, c2 = st.columns([2, 1])
             with c1:
                 st.info(f"المنتجات المحددة للمعالجة: {len(st.session_state.selected_missing_indices)}")
-                _debug_log("H4", "app.py:missing_pipeline_ui", "Missing pipeline rendered", {
-                    "selected_count": len(st.session_state.selected_missing_indices),
-                    "policy": st.session_state.get("miss_dup_policy", ""),
-                })
                 with st.expander("🛡️ سياسة منع التكرار قبل البدء", expanded=False):
                     uncertain_policy = st.radio(
                         "عند وجود حالة مشكوك فيها:",
@@ -6027,13 +5999,6 @@ elif page == "🔍 منتجات مفقودة":
                 _is_similar = "⚠️" in note
                 _has_variant= bool(variant_label and variant_label.strip())
                 _is_tester_type = "تستر" in variant_label if _has_variant else False
-                if idx == page_df.index[0]:
-                    _debug_log("H3", "app.py:missing_cards_loop", "Rendering first missing card", {
-                        "idx": str(idx),
-                        "name": name[:80],
-                        "has_variant": _has_variant,
-                        "variant_product": variant_product[:80],
-                    })
 
                 # ملاحظة: إشارات اللون/النوع المتاح/التستر تُصاغ الآن داخل
                 # miss-card-v32 (styles.miss_card) من حقول الصف مباشرةً.
