@@ -133,9 +133,9 @@ https://share.streamlit.io
 
 GEMINI_API_KEYS = '["YOUR_API_KEY_HERE"]'
 
-WEBHOOK_UPDATE_PRICES = "https://hook.eu2.make.com/99oljy0d6r3chwg6bdfsptcf6bk8htsd"
+WEBHOOK_UPDATE_PRICES = "https://hook.eu2.make.com/YOUR_WEBHOOK_URL_HERE"
 
-WEBHOOK_NEW_PRODUCTS = "https://hook.eu2.make.com/xvubj23dmpxu8qzilstd25cnumrwtdxm"
+WEBHOOK_NEW_PRODUCTS = "https://hook.eu2.make.com/YOUR_WEBHOOK_URL_HERE"
 ```
 
 ### 3️⃣ جرّب!
