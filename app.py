@@ -91,48 +91,44 @@ SECTIONS = [
     "⚙️ الإعدادات",
 ]
 from styles import (get_styles, vs_card, miss_card_v2,
-                    get_sidebar_toggle_js, lazy_img_tag, linked_product_title,
+                    get_sidebar_toggle_js, lazy_img_tag,
                     render_kpi_row, render_active_filter_chips_html,
                     render_changes_table, render_excluded_table,
                     render_precise_stats)
 from engines.mahwous_core import validate_export_product_dataframe
 from engines.engine import (read_file, run_full_analysis, find_missing_products,
                              smart_missing_barrier, prepare_missing_for_upload,
-                             extract_brand, extract_size, extract_type, is_sample,
+                             extract_brand,
                              resolve_catalog_columns, detect_input_columns,
                              apply_user_column_map,
                              _first_image_url_from_row)
 from engines.ai_engine import (call_ai, verify_match,
-                                bulk_verify, suggest_price,
-                                search_market_price, search_mahwous,
+                                search_market_price,
                                 ai_verify_dedup,
-                                fetch_fragrantica_info, fetch_product_images,
-                                generate_mahwous_description, _parse_seo_json_block,
-                                reclassify_review_items, ai_deep_analysis,
+                                fetch_fragrantica_info,
+                                generate_mahwous_description,
+                                reclassify_review_items,
                                 generate_seo_description, generate_action_summary)
 from engines.analysis_job_runner import run_analysis_background_job as _run_analysis_background
 from engines.reconciliation_engine import (
-    failed_rows_to_csv_bytes,
     failed_rows_to_xlsx_bytes,
     merge_reconciliation_into_audit,
     reconcile_competitor_upload,
 )
 from engines.file_reader import load_competitor_csv_for_matching
 from utils.helpers import (apply_filters, get_filter_options, export_to_excel,
-                            export_multiple_sheets, parse_pasted_text,
-                            safe_float, format_price, format_diff,
+                            export_multiple_sheets,
+                            safe_float,
                             fetch_og_image_url, favicon_url_for_site,
                             fetch_page_title_from_url)
 from utils.make_helper import (send_price_updates, send_new_products,
                                 send_missing_products, send_single_product,
-                                verify_webhook_connection, export_to_make_format,
+                                export_to_make_format,
                                 send_batch_smart)
 from utils.salla_shamel_export import (
     export_to_salla_shamel,
     export_to_salla_shamel_csv,
     verify_truly_missing,
-    merge_competitor_uploads,
-    SALLA_SHAMEL_COLUMNS,
 )
 from utils.product_analyzer import analyze_product_inline, render_analysis_result
 from utils.filter_ui import (render_sidebar_filters, apply_global_filters,
@@ -140,7 +136,6 @@ from utils.filter_ui import (render_sidebar_filters, apply_global_filters,
 from utils.data_helpers import (safe_results_for_json, restore_results_from_json,
                                 merge_missing_products_dataframes,
                                 merge_price_analysis_dataframes,
-                                ts_badge, decision_badge,
                                 row_media_urls_from_analysis,
                                 our_product_url_from_row,
                                 competitor_product_url_from_row)
@@ -158,13 +153,7 @@ from utils.db_manager import (init_db, get_db, log_event, log_decision,
                                get_competitor_store_stats, init_competitor_store,
                                get_processed_hydration_sets, bulk_revert_processed,
                                # Task 3.3 — Soft Delete
-                               soft_delete_product, get_soft_deleted_product_keys,
-                               restore_soft_deleted_product, ensure_is_deleted_column,
-                               apply_soft_deletes_to_df,
-                               # Task 3.5 — Inline Edit
-                               update_product_data, get_product_overrides, delete_product_override,
-                               # Task 3.6 — Force Link
-                               force_link_product, get_force_links, delete_force_link)
+                               soft_delete_product, get_soft_deleted_product_keys)
 
 # ── استيراد صفحات الدمج (مع try/except لضمان عدم توقف التطبيق) ────────────
 try:
