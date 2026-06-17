@@ -143,6 +143,26 @@ def _resolve_category_id(p: Dict) -> Optional[int]:
         return None
 
 
+# ── ربط اسم الماركة → brand_id (جدول الربط في missing_queue_manager) ───────
+def _resolve_brand_id(p: Dict) -> Optional[int]:
+    """يحوّل اسم الماركة → brand_id رقمي عبر load_brand_id_map.
+    يقبل brand_id رقمياً جاهزاً أولاً؛ وإلا يطبّع اسم الماركة بنفس مفتاح
+    missing_queue_manager (_brand_key) ثم يبحث. يعيد None إن تعذّر (يُحذف من الـ payload)."""
+    raw_id = _safe_float(p.get("brand_id", 0))
+    if raw_id:
+        return int(raw_id)
+    name = str(p.get("brand") or p.get("الماركة") or p.get("brand_name") or "").strip()
+    if not name:
+        return None
+    try:
+        from utils.missing_queue_manager import load_brand_id_map, _brand_key
+        bid = _safe_float(load_brand_id_map().get(_brand_key(name), 0))
+        return int(bid) if bid else None
+    except Exception as e:
+        logger.warning("تعذّر ربط الماركة «%s» بـ brand_id: %s", name[:40], e)
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  تحويل DataFrame → قائمة منتجات مع حساب السعر الصحيح لكل قسم
 # ══════════════════════════════════════════════════════════════════════════
@@ -514,7 +534,7 @@ def send_missing_products(products: List[Dict]) -> Dict:
             "السعر المخفض":    int(round(_safe_float(p.get("sale_price",  p.get("السعر المخفض", 0))))),
             "الوصف":           str(p.get("الوصف", p.get("description", ""))).strip(),
             "صورة المنتج":     str(p.get("image_url", p.get("صورة المنتج", ""))).strip(),
-            "brand_id":        int(_safe_float(p.get("brand_id", 0))) or None,
+            "brand_id":        _resolve_brand_id(p),
             "category_id":     _resolve_category_id(p),
         }
         # تنظيف: إزالة الحقول الفارغة None
