@@ -120,6 +120,29 @@ def _extract_no(row_or_dict) -> str:
     return _clean_pid(raw)
 
 
+# ── ربط اسم التصنيف → category_id (جدول الربط في missing_queue_manager) ────
+def _resolve_category_id(p: Dict) -> Optional[int]:
+    """يحوّل اسم التصنيف → category_id رقمي عبر جدول الربط الموجود.
+    يقبل category_id رقمياً جاهزاً أولاً؛ وإلا يبحث باسم التصنيف (عدة مفاتيح محتملة).
+    يعيد None إن تعذّر (فيُحذف لاحقاً من الـ payload — لا يُرسَل صفر/فارغ)."""
+    raw_id = _safe_float(p.get("category_id", 0))
+    if raw_id:
+        return int(raw_id)
+    name = str(
+        p.get("category_name") or p.get("التصنيف") or
+        p.get("تصنيف_المنتج")   or p.get("category") or ""
+    ).strip()
+    if not name:
+        return None
+    try:
+        from utils.missing_queue_manager import load_category_catalog
+        cid = _safe_float(load_category_catalog().get(name, 0))
+        return int(cid) if cid else None
+    except Exception as e:
+        logger.warning("تعذّر ربط التصنيف «%s» بـ category_id: %s", name[:40], e)
+        return None
+
+
 # ══════════════════════════════════════════════════════════════════════════
 #  تحويل DataFrame → قائمة منتجات مع حساب السعر الصحيح لكل قسم
 # ══════════════════════════════════════════════════════════════════════════
@@ -492,7 +515,7 @@ def send_missing_products(products: List[Dict]) -> Dict:
             "الوصف":           str(p.get("الوصف", p.get("description", ""))).strip(),
             "صورة المنتج":     str(p.get("image_url", p.get("صورة المنتج", ""))).strip(),
             "brand_id":        int(_safe_float(p.get("brand_id", 0))) or None,
-            "category_id":     int(_safe_float(p.get("category_id", 0))) or None,
+            "category_id":     _resolve_category_id(p),
         }
         # تنظيف: إزالة الحقول الفارغة None
         item = {k: v for k, v in item.items() if v not in (None, "")}
