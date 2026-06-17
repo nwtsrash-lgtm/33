@@ -49,15 +49,15 @@ def get_main_css():
 .smart-card-img{width:64px;height:64px;border-radius:10px;object-fit:cover;border:2px solid #6C63FF;flex-shrink:0;background:#0e1628}
 .smart-card-info{flex:1;min-width:0}
 .smart-card-name{font-weight:700;color:#E2E8F0;font-size:.95rem;line-height:1.4;word-wrap:break-word}
-.smart-card-meta{font-size:.72rem;color:#64748B;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.smart-card-meta{font-size:.72rem;color:#94A3B8;margin-top:3px;display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 .smart-card-meta span{display:inline-flex;align-items:center;gap:2px}
 .smart-card-price-box{text-align:center;min-width:90px;flex-shrink:0;padding:6px 10px;background:rgba(108,99,255,.08);border-radius:8px}
 .smart-card-our-price{font-size:1.3rem;font-weight:900;color:#818CF8}
-.smart-card-our-label{font-size:.62rem;color:#64748B}
+.smart-card-our-label{font-size:.62rem;color:#94A3B8}
 
 /* ── شريط المنافسين v31.7 ── */
 .comp-list{padding:0 16px 12px;direction:rtl}
-.comp-list-title{font-size:.72rem;color:#64748B;margin-bottom:6px;display:flex;align-items:center;gap:4px}
+.comp-list-title{font-size:.72rem;color:#94A3B8;margin-bottom:6px;display:flex;align-items:center;gap:4px}
 .comp-item{display:flex;align-items:center;gap:10px;padding:8px 10px;background:rgba(15,23,42,.6);border:1px solid #1F293766;border-radius:8px;margin:4px 0;transition:all .2s ease}
 .comp-item:hover{border-color:#F59E0B44;background:rgba(245,158,11,.04)}
 .comp-item.leader{border-color:#F59E0B55;background:rgba(245,158,11,.06)}
@@ -65,7 +65,7 @@ def get_main_css():
 .comp-item-info{flex:1;min-width:0}
 .comp-item-store{font-weight:700;font-size:.78rem;color:#F59E0B;display:flex;align-items:center;gap:4px}
 .comp-item-name{font-size:.72rem;color:#94A3B8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:280px}
-.comp-item-size{font-size:.62rem;color:#64748B}
+.comp-item-size{font-size:.62rem;color:#94A3B8}
 .comp-item-price-box{text-align:center;min-width:80px;flex-shrink:0}
 .comp-item-price{font-size:1rem;font-weight:900}
 .comp-item-diff{font-size:.62rem;font-weight:600;margin-top:1px}
@@ -76,7 +76,7 @@ def get_main_css():
 .diff-red{background:rgba(239,68,68,.12);color:#EF4444;border:1px solid #EF444433}
 .diff-green{background:rgba(16,185,129,.12);color:#10B981;border:1px solid #10B98133}
 .diff-yellow{background:rgba(245,158,11,.12);color:#F59E0B;border:1px solid #F59E0B33}
-.card-date{font-size:.66rem;color:#64748B}
+.card-date{font-size:.66rem;color:#94A3B8}
 
 /* ── البطاقة المفقودة v31.7 ── */
 .miss-card{border-radius:12px;padding:14px;margin:14px 0;background:linear-gradient(135deg,#0B0F19,#111827);border:1px solid #1F293788;transition:all .3s ease}
@@ -85,7 +85,7 @@ def get_main_css():
 .miss-card .miss-info{flex:1;min-width:0}
 .miss-card .miss-thumb{flex-shrink:0}
 .miss-card .miss-name{font-weight:700;color:#38BDF8;font-size:1rem}
-.miss-card .miss-meta{font-size:.75rem;color:#64748B;margin-top:4px}
+.miss-card .miss-meta{font-size:.75rem;color:#94A3B8;margin-top:4px}
 .miss-card .miss-prices{text-align:left;min-width:120px}
 .miss-card .miss-comp-price{font-size:1.2rem;font-weight:900;color:#F59E0B}
 .miss-card .miss-suggested{font-size:.72rem;color:#10B981}
@@ -217,7 +217,7 @@ def vs_card(our_name, our_price, comp_name, comp_price, diff, comp_source="",
     match_score = _safe_float(match_score)
 
     pid = _safe_str(product_id)
-    pid_html = f'<span style="color:#64748B;font-size:.62rem">#{pid}</span>' if pid and pid != "0" else ""
+    pid_html = f'<span style="color:#94A3B8;font-size:.62rem">#{pid}</span>' if pid and pid != "0" else ""
 
     brand_s = _safe_str(brand, "")
     size_s = _safe_str(size, "")
@@ -246,7 +246,7 @@ def vs_card(our_name, our_price, comp_name, comp_price, diff, comp_source="",
 <div class="smart-card-price-box">
 <div class="smart-card-our-label">سعرنا</div>
 <div class="smart-card-our-price">{our_price:,.0f}</div>
-<div style="font-size:.58rem;color:#64748B">ر.س</div>
+<div style="font-size:.58rem;color:#94A3B8">ر.س</div>
 </div>
 </div>'''
 
@@ -315,7 +315,7 @@ def vs_card(our_name, our_price, comp_name, comp_price, diff, comp_source="",
 {size_html}
 </div>
 <div class="comp-item-price-box">
-<div class="comp-item-price" style="color:{price_color}">{c_price_v:,.0f} <span style="font-size:.6rem;color:#64748B">ر.س</span></div>
+<div class="comp-item-price" style="color:{price_color}">{c_price_v:,.0f} <span style="font-size:.6rem;color:#94A3B8">ر.س</span></div>
 {diff_html}
 </div>
 </div>''')
@@ -411,7 +411,7 @@ def comp_strip(all_comps, our_price=None, rank_by_threat=False, show_threat_badg
         border = "#F59E0B55" if is_leader else "#1F293766"
         name_color = "#F59E0B" if is_leader else "#94A3B8"
         short_pname = c_pname[:50] + ".." if len(c_pname) > 50 else c_pname
-        score_html = f'<span style="color:#64748B;font-size:.62rem">{c_score:.0f}%</span>' if c_score > 0 else ""
+        score_html = f'<span style="color:#94A3B8;font-size:.62rem">{c_score:.0f}%</span>' if c_score > 0 else ""
         threat_html = ""
         if show_threat_badge and cm.get("threat_score") is not None:
             try:
@@ -1237,7 +1237,7 @@ _V32_CSS = """<style>
 .v32-name{font-size:.95rem;font-weight:700;color:#E2E8F0;line-height:1.35;word-wrap:break-word}
 .v32-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:3px;font-size:.72rem}
 .v32-brand{color:#818CF8;background:rgba(99,102,241,.1);padding:1px 7px;border-radius:4px}
-.v32-sku{color:#64748B}
+.v32-sku{color:#94A3B8}
 .v32-arena{display:flex;align-items:stretch;gap:0;padding:14px 14px;background:rgba(2,6,23,.3)}
 .v32-side{flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;padding:12px 10px;border:2px solid;border-radius:12px;transition:all .2s ease;position:relative}
 .v32-side-name{font-size:.72rem;font-weight:600;color:#CBD5E1;text-align:center;line-height:1.3;width:100%;word-break:break-word;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;min-height:2.6em;max-height:2.6em}
@@ -1245,31 +1245,31 @@ _V32_CSS = """<style>
 .v32-our-label{background:#3730A3;color:#C7D2FE}
 .v32-comp-label{background:#1F2937;color:#94A3B8;max-width:90%;overflow:hidden;text-overflow:ellipsis}
 .v32-big-price{font-size:1.8rem;font-weight:900;line-height:1;font-variant-numeric:tabular-nums}
-.v32-currency{font-size:.65rem;color:#64748B;margin-top:-4px}
+.v32-currency{font-size:.65rem;color:#94A3B8;margin-top:-4px}
 .v32-vs-col{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 12px;gap:4px;flex-shrink:0;min-width:64px}
 .v32-vs-icon{font-size:1.5rem}
 .v32-vs-text{font-size:1.1rem;font-weight:900;letter-spacing:2px}
 .v32-diff-label{font-size:.62rem;font-weight:600;text-align:center;line-height:1.3;max-width:90px}
 .v32-accordion{border-top:1px solid #1E293B;background:#0A0F1A}
-.v32-accordion-trigger{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;cursor:pointer;font-size:.78rem;font-weight:600;color:#64748B;user-select:none;list-style:none;outline:none;transition:color .15s}
+.v32-accordion-trigger{display:flex;justify-content:space-between;align-items:center;padding:10px 16px;cursor:pointer;font-size:.78rem;font-weight:600;color:#94A3B8;user-select:none;list-style:none;outline:none;transition:color .15s}
 .v32-accordion-trigger::-webkit-details-marker{display:none}
 .v32-accordion-trigger:hover{color:#94A3B8}
 .v32-accordion[open] .v32-accordion-arrow{transform:rotate(180deg)}
 .v32-accordion-arrow{transition:transform .2s ease;display:inline-block}
 .v32-accordion-body{padding:8px 16px 12px;border-top:1px solid #1E293B;max-height:280px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#334155 transparent}
 .v32-comps-always{border-top:1px solid #1E293B;background:#0A0F1A}
-.v32-comps-head{padding:9px 16px 2px;font-size:.74rem;font-weight:700;color:#64748B}
+.v32-comps-head{padding:9px 16px 2px;font-size:.74rem;font-weight:700;color:#94A3B8}
 .v32-comps-body{padding:4px 16px 12px;max-height:300px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#334155 transparent}
 .v32-comp-row{display:flex;align-items:center;gap:10px;padding:7px 8px;border-radius:8px;border:1px solid transparent;transition:background .15s;margin:3px 0}
 .v32-comp-row:hover{background:rgba(30,41,59,.5)}
 .v32-comp-row.lead-row{border-color:#F59E0B22;background:rgba(245,158,11,.04)}
 .v32-row-info{flex:1;min-width:0}
 .v32-row-store{font-size:.78rem;font-weight:700;color:#F59E0B}
-.v32-row-name{font-size:.70rem;color:#64748B;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.v32-row-name{font-size:.70rem;color:#94A3B8;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .v32-row-size{font-size:.62rem;color:#475569}
 .v32-row-price-col{text-align:center;min-width:90px;flex-shrink:0}
 .v32-row-price{font-size:.95rem;font-weight:800;color:#E2E8F0}
-.v32-row-sar{font-size:.58rem;color:#64748B}
+.v32-row-sar{font-size:.58rem;color:#94A3B8}
 .v32-row-diff{font-size:.65rem;font-weight:700;display:block;margin-top:2px}
 .v32-row-diff.red{color:#EF4444}
 .v32-row-diff.green{color:#10B981}
@@ -1285,17 +1285,17 @@ _V32_CSS = """<style>
 .v32-kpi-row{display:flex;flex-wrap:wrap;gap:12px;margin-bottom:20px}
 .v32-kpi{flex:1;min-width:120px;background:#0D1117;border:1px solid #1E293B;border-top:3px solid #818CF8;border-radius:12px;padding:14px 12px;text-align:center}
 .v32-kpi-num{font-size:1.8rem;font-weight:900;font-variant-numeric:tabular-nums}
-.v32-kpi-lbl{font-size:.72rem;color:#64748B;margin-top:2px}
+.v32-kpi-lbl{font-size:.72rem;color:#94A3B8;margin-top:2px}
 .miss-card-v32{background:linear-gradient(135deg,#0B0F19,#0F172A);border:1px solid #1E3A5F;border-right:3px solid #0EA5E9;border-radius:12px;margin:8px 0;transition:border-color .2s,box-shadow .2s;contain:layout style}
 .miss-card-v32:hover{border-color:#0EA5E9;box-shadow:0 4px 20px rgba(14,165,233,.12)}
 .miss-card-inner{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:14px 16px}
 .miss-card-info{flex:1;min-width:0}
-.miss-card-store{font-size:.70rem;color:#64748B;margin-bottom:4px}
+.miss-card-store{font-size:.70rem;color:#94A3B8;margin-bottom:4px}
 .miss-card-name{line-height:1.35;word-wrap:break-word}
 .miss-card-meta{font-size:.70rem;color:#475569;margin-top:4px}
 .miss-card-price-side{flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;text-align:center;min-width:100px}
 .miss-card-price{font-size:1.5rem;font-weight:900;color:#F59E0B;font-variant-numeric:tabular-nums}
-.miss-card-sar{font-size:.62rem;color:#64748B;margin-top:-4px}
+.miss-card-sar{font-size:.62rem;color:#94A3B8;margin-top:-4px}
 .miss-card-badge{font-size:.62rem;font-weight:700;padding:2px 8px;background:rgba(14,165,233,.1);color:#38BDF8;border:1px solid #0EA5E930;border-radius:8px;margin-top:4px}
 .ct-wrap{max-height:260px;overflow:auto;border:1px solid #1E293B;border-radius:10px;margin:4px 0 12px}
 .changes-table{width:100%;border-collapse:collapse;font-size:.78rem}
@@ -1305,13 +1305,13 @@ _V32_CSS = """<style>
 .changes-table .ct-num{text-align:center;font-variant-numeric:tabular-nums;white-space:nowrap}
 .changes-table .ct-name{color:#E2E8F0;font-weight:600}
 .changes-table .ct-store{color:#82B1FF}
-.changes-table .ct-date{color:#64748B;white-space:nowrap;font-size:.72rem}
+.changes-table .ct-date{color:#94A3B8;white-space:nowrap;font-size:.72rem}
 .changes-table .ex-reason{color:#94A3B8;font-size:.74rem}
 .ps-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin:6px 0 18px}
 .ps-cell{background:#0D1117;border:1px solid #1E293B;border-top:3px solid #818CF8;border-radius:10px;padding:10px 8px;text-align:center}
 .ps-ico{font-size:1rem}
 .ps-num{font-size:1.4rem;font-weight:900;font-variant-numeric:tabular-nums;line-height:1.1}
-.ps-lbl{font-size:.68rem;color:#64748B;margin-top:2px}
+.ps-lbl{font-size:.68rem;color:#94A3B8;margin-top:2px}
 @media (max-width:900px){.ps-grid{grid-template-columns:repeat(2,1fr)}}
 .exc-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:10px;margin:6px 0}
 .exc-card{background:#0D1117;border:1px solid #1F2937;border-right:3px solid #94A3B8;border-radius:12px;padding:12px;display:flex;flex-direction:column;gap:8px}
