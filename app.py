@@ -4984,12 +4984,20 @@ elif page == "🔍 منتجات مفقودة":
             _conf_cols = st.columns(len(_conf_options))
             for _ci, _co in enumerate(_conf_options):
                 with _conf_cols[_ci]:
-                    _is_active = st.session_state.get("miss_conf_active", "الكل") == _co
+                    _is_active = st.session_state.get("miss_conf_active", "🟢 مفقود مؤكد") == _co
                     _btn_type = "primary" if _is_active else "secondary"
                     if st.button(_co, key=f"miss_conf_btn_{_ci}", type=_btn_type, use_container_width=True):
                         st.session_state["miss_conf_active"] = _co
                         st.rerun()
-            conf_f = st.session_state.get("miss_conf_active", "الكل")
+            conf_f = st.session_state.get("miss_conf_active", "🟢 مفقود مؤكد")
+            # F3 — فصل العرض: الافتراضي «المفقود المؤكد فقط»؛ «محتمل موجود» (نملكه
+            # باسم/حجم مختلف — يحتاج مراجعة) بضغطة منفصلة، فلا يختلط المؤكد بالمشكوك.
+            if conf_f == "🟢 مفقود مؤكد":
+                st.caption("🟢 يُعرض **المفقود المؤكد فقط**. اضغط «🔵 محتمل موجود» "
+                           "لمراجعة ما قد نملكه باسم/حجم مختلف.")
+            elif conf_f == "🔵 محتمل موجود":
+                st.caption("🔵 **محتمل موجود** — نملك شبيهاً لها (اسم/حجم مختلف). "
+                           "احسمها بزر «🤖 تحقّق AI» أو يدوياً. ليست مفقودات مؤكدة.")
 
             # باقي الفلاتر داخل form — لا يُعاد الرسم عند كل حرف (تُطبَّق عند الضغط)
             _price_col = None
