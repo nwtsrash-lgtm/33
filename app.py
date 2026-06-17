@@ -777,10 +777,10 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
     # تُعاد الحوسبة الثقيلة عند كل دخول للقسم أو إعادة تشغيل العملية (ذاكرة @st.cache_data
     # تُفقد عند إعادة التشغيل وتنتهي بعد 30د). المفتاح = توقيع المدخلات (حجم الكتالوج +
     # حجم قاعدة المخزن + نسخة المنطق)؛ أي تغيّر فيها ⇒ توقيع جديد ⇒ إعادة حساب. زر
-    # «إعادة حساب» يحذف الملف يدوياً. (الإصدار F4v1 يتجاهل أي ملف قديم بتوقيع مختلف.)
+    # «إعادة حساب» يحذف الملف يدوياً. (الإصدار F4v2 يتجاهل أي ملف قديم بتوقيع مختلف.)
     _cache_pkl = _cm_os.path.join(_cm_os.environ.get("DATA_DIR", "data"), "missing_cache.pkl")
     try:
-        _sig = f"F4v1|{len(our_df)}|{_cm_os.path.getsize(_db)}"
+        _sig = f"F4v2|{len(our_df)}|{_cm_os.path.getsize(_db)}"
     except OSError:
         _sig = ""
     if _sig and _cm_os.path.exists(_cache_pkl):
