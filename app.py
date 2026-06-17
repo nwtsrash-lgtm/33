@@ -1805,7 +1805,8 @@ def _render_audit_bar(audit_stats: dict):
     nc = int(audit_stats.get("no_competitor_found") or 0)
     se = int(audit_stats.get("skipped_empty") or 0)
     sk = int(audit_stats.get("skipped_samples") or 0)
-    tot = pr + nc + se + sk
+    ex = int(audit_stats.get("excluded_sets") or 0)
+    tot = pr + nc + se + sk + ex
     st.markdown(
         f"""
     <div style="display:flex;flex-wrap:wrap;justify-content:space-between;gap:10px;
@@ -1820,6 +1821,8 @@ def _render_audit_bar(audit_stats: dict):
             <span style="font-size:1.5rem;color:#9e9e9e;">{se}</span></div>
         <div style="text-align:center;flex:1;min-width:88px;"><strong>🚫 عينة / &lt;10مل</strong><br>
             <span style="font-size:1.5rem;color:#e53935;">{sk}</span></div>
+        <div style="text-align:center;flex:1;min-width:88px;"><strong>🎁 مجموعات/أطقم</strong><br>
+            <span style="font-size:1.5rem;color:#ab47bc;">{ex}</span></div>
     </div>
     """,
         unsafe_allow_html=True,
@@ -1827,7 +1830,7 @@ def _render_audit_bar(audit_stats: dict):
     if ti > 0 and tot != ti:
         st.error(
             f"🚨 تحذير تدقيق: المدخلات ({ti}) لا تساوي مجموع الحالات ({tot}) — "
-            f"معالج={pr} + بدون منافس={nc} + فارغ={se} + عينة/صغير={sk}."
+            f"معالج={pr} + بدون منافس={nc} + فارغ={se} + عينة/صغير={sk} + مجموعات/أطقم={ex}."
         )
 
 
