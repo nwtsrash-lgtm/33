@@ -3394,9 +3394,11 @@ def find_missing_products(our_df, comp_dfs):
             _e["المنافسون"] = "، ".join([x for x in _lst if x]) if isinstance(_lst, list) else str(_lst or "")
     _after_dedup = len(missing)
     try:
-        print(f"[find_missing_products] فلتر الحجم: بلا_حجم={_drop_nosize} "
-              f"ميني<10مل={_drop_mini} | دمج عالمي: قبل={_before_dedup} "
-              f"بعد={_after_dedup} مُدمَج={_before_dedup - _after_dedup}")
+        logging.getLogger("engines.engine").info(
+            f"[find_missing_products] فلتر الحجم: بلا_حجم={_drop_nosize} "
+            f"ميني<10مل={_drop_mini} | دمج عالمي: قبل={_before_dedup} "
+            f"بعد={_after_dedup} مُدمَج={_before_dedup - _after_dedup}"
+        )
     except Exception:
         pass
 
