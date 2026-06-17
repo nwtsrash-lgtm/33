@@ -42,7 +42,7 @@ def get_main_css():
 .stat-card .lbl{font-size:.85rem;color:#8B8B8B}
 
 /* ── بطاقة المنتج الذكية v31.7 ── */
-.smart-card{background:#111827;border:1px solid #1F293788;border-radius:12px;margin:10px 0;overflow:hidden;transition:all .3s ease}
+.smart-card{background:#111827;border:1px solid #1F293788;border-radius:12px;margin:16px 0;overflow:hidden;transition:all .3s ease}
 .smart-card:hover{border-color:#6C63FF55;box-shadow:0 4px 20px rgba(108,99,255,.12)}
 
 .smart-card-header{display:flex;align-items:center;gap:14px;padding:14px 16px;border-bottom:1px solid #1F293744;direction:rtl}
@@ -76,10 +76,10 @@ def get_main_css():
 .diff-red{background:rgba(239,68,68,.12);color:#EF4444;border:1px solid #EF444433}
 .diff-green{background:rgba(16,185,129,.12);color:#10B981;border:1px solid #10B98133}
 .diff-yellow{background:rgba(245,158,11,.12);color:#F59E0B;border:1px solid #F59E0B33}
-.card-date{font-size:.58rem;color:#475569}
+.card-date{font-size:.66rem;color:#64748B}
 
 /* ── البطاقة المفقودة v31.7 ── */
-.miss-card{border-radius:12px;padding:14px;margin:8px 0;background:linear-gradient(135deg,#0B0F19,#111827);border:1px solid #1F293788;transition:all .3s ease}
+.miss-card{border-radius:12px;padding:14px;margin:14px 0;background:linear-gradient(135deg,#0B0F19,#111827);border:1px solid #1F293788;transition:all .3s ease}
 .miss-card:hover{border-color:#0EA5E944;box-shadow:0 4px 16px rgba(14,165,233,.08)}
 .miss-card .miss-header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
 .miss-card .miss-info{flex:1;min-width:0}
