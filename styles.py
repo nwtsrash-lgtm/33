@@ -132,6 +132,8 @@ header[data-testid="stHeader"]{background:transparent!important;backdrop-filter:
 [data-testid="stExpander"] summary svg,
 [data-testid="stSelectbox"] svg[data-testid="stExpanderToggleIcon"],
 details summary span[data-testid] svg{font-family:system-ui,-apple-system,sans-serif!important}
+/* أيقونات Streamlit Material — استعادة خطّها بعد override الخط العام (وإلا تتسرّب أسماؤها كنص) */
+[data-testid="stIconMaterial"]{font-family:'Material Symbols Rounded'!important}
 [data-testid="stExpander"] summary{direction:rtl;font-family:'Tajawal',sans-serif!important}
 .stSelectbox label,.stMultiSelect label{direction:rtl;font-family:'Tajawal',sans-serif!important}
 .st-key-page_num input{text-align:center!important;font-size:1.1rem!important;font-weight:700!important}
