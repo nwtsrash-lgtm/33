@@ -918,11 +918,21 @@ def _compute_missing_from_store(_our_sig: str = "") -> pd.DataFrame:
         _best_it = None
         if _cidx:
             _cidx_list = list(_cidx)
-            _bares = [_our_items[i]["bare"] for i in _cidx_list]
-            _m = _pr.extractOne(_bb, _bares, scorer=_fz.token_set_ratio)
-            if _m:
-                _best_sc = float(_m[1])
-                _best_it = _our_items[_cidx_list[_m[2]]]
+            # F1 — حارس الماركة: token_set_ratio قد يطابق ماركةً مختلفة تماماً على
+            # كلمة عامة (عود/روز/مسك) فيُخفي مفقوداً حقيقياً أو يعرض «مشابهاً» وهمياً.
+            # حين تكون ماركة المنافس معروفة، نقصر المطابقة على عناصرنا من نفس الماركة
+            # أو مجهولة الماركة فقط (لا نشترط التطابق — extract_brand يفشل لأسماء مثل
+            # «فان كليف»/«فيرتس» فنُبقيها مفتوحة عند الفراغ — بل نستبعد المؤكَّد اختلافها).
+            if _c_brand_n:
+                _cidx_list = [i for i in _cidx_list
+                              if (not _our_items[i]["brand_n"])
+                              or _our_items[i]["brand_n"] == _c_brand_n]
+            if _cidx_list:
+                _bares = [_our_items[i]["bare"] for i in _cidx_list]
+                _m = _pr.extractOne(_bb, _bares, scorer=_fz.token_set_ratio)
+                if _m:
+                    _best_sc = float(_m[1])
+                    _best_it = _our_items[_cidx_list[_m[2]]]
         # حارس الحجم: token_set_ratio يعطي 100% لأي اسم فرعي (subset) بعد تجريد
         # الاسم، فيُخفي منتجات مختلفة من نفس الماركة. لذا لا نُخفي إلا بحجم متوافق.
         _osz = _best_it["size"] if _best_it else 0
