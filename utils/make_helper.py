@@ -32,11 +32,11 @@ def _get_webhook_url(key: str, default: str) -> str:
 
 WEBHOOK_UPDATE_PRICES = _get_webhook_url(
     "WEBHOOK_UPDATE_PRICES",
-    "https://hook.eu2.make.com/8jia6gc7s1cpkeg6catlrvwck768sbfk"
+    "https://hook.eu2.make.com/YOUR_WEBHOOK_URL_HERE"
 )
 WEBHOOK_NEW_PRODUCTS = _get_webhook_url(
     "WEBHOOK_NEW_PRODUCTS",
-    "https://hook.eu2.make.com/xvubj23dmpxu8qzilstd25cnumrwtdxm"
+    "https://hook.eu2.make.com/YOUR_WEBHOOK_URL_HERE"
 )
 
 TIMEOUT = 15  # ثانية
