@@ -2418,7 +2418,14 @@ def _row(product, our_price, our_id, brand, size, ptype, gender,
     if not override:
         # score < NO_MATCH_THRESHOLD مُعالَج ومُرجَع أعلاه (السطر ~2333) → لا يصل هنا
         if src in ("gemini", "auto") or score >= REVIEW_MAX:
-            if our_price > 0 and cp_display > 0:
+            # أ3 — بوابة التحقق الشديد: لا بطاقة إلا بعد فحص هيكلي (حجم/ماركة).
+            # يعيد استخدام نفس منطق المفقودات المُختبَر (_structural_match): يرفض فقط
+            # عند اختلاف حجم/ماركة مؤكّد، وإلّا يقبل (لا عقاب عند الغموض → صفر فقدان).
+            # استيراد محلي لتفادي أي استيراد دائري عند تحميل الوحدة.
+            from engines.missing_products_engine import _structural_match as _struct_ok
+            if not _struct_ok(str(cheapest.get("name", "") or ""), product):
+                dec = f"⚠️ تحت المراجعة — اختلاف هيكلي ({score_display:.0f}%)"
+            elif our_price > 0 and cp_display > 0:
                 _pt2 = _smart_price_threshold(our_price, cp_display)
                 if diff_display > _pt2:   dec = "🔴 سعر أعلى"
                 elif diff_display < -_pt2: dec = "🟢 سعر أقل"
