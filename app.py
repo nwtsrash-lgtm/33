@@ -53,7 +53,6 @@ _os_early.environ.setdefault("OPENBLAS_MAIN_FREE", "1")
 import nest_asyncio
 nest_asyncio.apply()
 
-import concurrent.futures
 import threading
 
 import html
@@ -91,7 +90,7 @@ SECTIONS = [
     "🕷️ كشط المنافسين",
     "⚙️ الإعدادات",
 ]
-from styles import (get_styles, vs_card, comp_strip, miss_card, miss_card_v2,
+from styles import (get_styles, vs_card, miss_card_v2,
                     get_sidebar_toggle_js, lazy_img_tag, linked_product_title,
                     render_kpi_row, render_active_filter_chips_html,
                     render_changes_table, render_excluded_table,
@@ -103,7 +102,7 @@ from engines.engine import (read_file, run_full_analysis, find_missing_products,
                              resolve_catalog_columns, detect_input_columns,
                              apply_user_column_map,
                              _first_image_url_from_row)
-from engines.ai_engine import (call_ai, verify_match, analyze_product,
+from engines.ai_engine import (call_ai, verify_match,
                                 bulk_verify, suggest_price,
                                 search_market_price, search_mahwous,
                                 ai_verify_dedup,
@@ -119,10 +118,6 @@ from engines.reconciliation_engine import (
     reconcile_competitor_upload,
 )
 from engines.file_reader import load_competitor_csv_for_matching
-from engines.automation import (AutomationEngine, ScheduledSearchManager,
-                                 auto_push_decisions, auto_process_review_items,
-                                 log_automation_decision, get_automation_log,
-                                 get_automation_stats)
 from utils.helpers import (apply_filters, get_filter_options, export_to_excel,
                             export_multiple_sheets, parse_pasted_text,
                             safe_float, format_price, format_diff,
