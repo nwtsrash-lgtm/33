@@ -1249,15 +1249,6 @@ def search_mahwous(product_name):
     if data: return {"success":True, **data}
     return {"success":True,"likely_available":False,"confidence":50,"reason":txt[:150]}
 
-# ══ تحقق مكرر ════════════════════════════════════════════════════════════════
-def check_duplicate(product_name, our_products):
-    if not our_products: return {"success":True,"response":"لا توجد بيانات"}
-    prompt = f"""هل العطر {product_name} موجود بشكل مشابه في هذه القائمة؟
-القائمة: {', '.join(str(p) for p in our_products[:30])}
-اجب: نعم (وذكر اقرب مطابقة) او لا مع السبب."""
-    return call_ai(prompt, "missing")
-
-
 # ══ تحقق ذكي من التكرار (Phase 3 — RapidFuzz → AI Funnel) ═══════════════════
 def _dedup_cache_key(missing_name: str, candidates: list) -> str:
     """مفتاح cache مستقر لـ ai_verify_dedup (يعتمد الاسم + أسماء المرشحين فقط،
