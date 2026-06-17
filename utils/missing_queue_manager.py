@@ -145,6 +145,22 @@ def load_brand_catalog() -> Dict[str, str]:
     return dict(zip(df["brand_key"], df["brand_name"]))
 
 
+def load_brand_id_map() -> Dict[str, str]:
+    """يعيد dict: brand_key → brand_id لربط اسم الماركة بمعرّف سلة الرقمي.
+    يقرأ عمود brand_id من brand_catalog.csv (يُضاف فارغاً إن لم يكن موجوداً)؛
+    يتجاهل القيم الفارغة/الصفرية. مكمّل لـ load_category_catalog للتصنيفات."""
+    df = _read_csv(BRAND_CATALOG_FILE, ["brand_key", "brand_name", "brand_id"])
+    out: Dict[str, str] = {}
+    for _, r in df.iterrows():
+        bid = str(r.get("brand_id", "")).strip()
+        if not bid or bid in ("0", "nan", "None"):
+            continue
+        key = str(r.get("brand_key", "")).strip() or _brand_key(str(r.get("brand_name", "")))
+        if key:
+            out[key] = bid
+    return out
+
+
 def update_brand_catalog_from_file(uploaded_df: pd.DataFrame) -> Dict:
     """
     يحدّث كتالوج الماركات من DataFrame مرفوع (بصيغة ماركات مهووس.csv).
@@ -159,9 +175,18 @@ def update_brand_catalog_from_file(uploaded_df: pd.DataFrame) -> Dict:
     if col is None:
         return {"success": False, "message": "❌ لم يُعثر على عمود اسم الماركة في الملف"}
 
+    # brand_id: رقم الماركة في سلة (قد لا يكون في الملف — يُترك فارغاً)
+    col_id = None
+    for c in ["brand_id", "id", "الرقم", "معرف الماركة"]:
+        if c in uploaded_df.columns:
+            col_id = c
+            break
+
     names = uploaded_df[col].dropna().astype(str).str.strip()
     names = names[names != ""]
-    rows = [{"brand_key": _brand_key(n), "brand_name": n} for n in names]
+    ids   = uploaded_df[col_id].astype(str) if col_id else pd.Series([""] * len(names))
+    rows = [{"brand_key": _brand_key(n), "brand_name": n, "brand_id": str(i).strip()}
+            for n, i in zip(names, ids)]
     df = pd.DataFrame(rows).drop_duplicates("brand_key")
     _write_csv(df, BRAND_CATALOG_FILE)
 
