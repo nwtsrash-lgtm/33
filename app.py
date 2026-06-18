@@ -6600,6 +6600,22 @@ elif page == "🕷️ كشط المنافسين":
             _mh_comp_file = _os_scraper.path.join(
                 _os_scraper.environ.get("DATA_DIR", "data"), "competitors_list_v30.json"
             )
+            # ── Fallback: إذا لم يوجد الملف في DATA_DIR، انسخه من مجلد التطبيق المُضمَّن ──
+            if not _os_scraper.path.exists(_mh_comp_file):
+                _mh_bundled = _os_scraper.path.join(
+                    _os_scraper.path.dirname(_os_scraper.path.abspath(__file__)),
+                    "data", "competitors_list_v30.json"
+                )
+                if _os_scraper.path.exists(_mh_bundled):
+                    try:
+                        _os_scraper.makedirs(
+                            _os_scraper.path.dirname(_mh_comp_file), exist_ok=True
+                        )
+                        import shutil as _shutil_mh
+                        _shutil_mh.copy2(_mh_bundled, _mh_comp_file)
+                    except Exception:
+                        # إذا فشل النسخ (صلاحيات مثلاً)، اقرأ مباشرة من النسخة المضمنة
+                        _mh_comp_file = _mh_bundled
             _mh_stores = {}
             try:
                 with open(_mh_comp_file, "r", encoding="utf-8") as _f:

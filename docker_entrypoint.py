@@ -46,7 +46,7 @@ from urllib.request import urlretrieve
 _B64_FILES = {
     "CATEGORIES_CSV_B64":    "categories.csv",
     "OUR_CATALOG_CSV_B64":   "our_catalog.csv",
-    "COMPETITORS_JSON_B64":  "competitors_list.json",
+    "COMPETITORS_JSON_B64":  "competitors_list_v30.json",
     "SALLA_BRANDS_B64":      "ماركات مهووس.csv",
     "SALLA_CATEGORIES_B64":  "تصنيفات مهووس.csv",
 }
@@ -57,7 +57,7 @@ _URL_FILES = {
     "SALLA_BRANDS_URL":      "ماركات مهووس.csv",
     "SALLA_CATEGORIES_URL":  "تصنيفات مهووس.csv",
     "OUR_CATALOG_CSV_URL":   "our_catalog.csv",
-    "COMPETITORS_JSON_URL":  "competitors_list.json",
+    "COMPETITORS_JSON_URL":  "competitors_list_v30.json",
 }
 
 
