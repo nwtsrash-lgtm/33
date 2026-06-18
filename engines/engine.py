@@ -2099,6 +2099,19 @@ _OR_FREE = [
     "mistralai/mistral-7b-instruct:free",
 ]
 
+# ⚡ v32: Cooldown ذكي للمفاتيح — يتخطى المفاتيح المحظورة 60 ثانية بدل الانتظار
+import time as _time_mod
+_KEY_COOLDOWN = {}  # {key_hash: timestamp_when_blocked}
+_KEY_COOLDOWN_SEC = 60  # تجاهل مفتاح محظور لمدة 60 ثانية
+
+def _key_available(key):
+    kh = key[-8:]
+    blocked_at = _KEY_COOLDOWN.get(kh, 0)
+    return (_time_mod.time() - blocked_at) > _KEY_COOLDOWN_SEC
+
+def _key_block(key):
+    _KEY_COOLDOWN[key[-8:]] = _time_mod.time()
+
 def _ai_batch(batch):
     """
     batch: [{"our":str, "price":float, "candidates":[...]}]
@@ -2168,8 +2181,10 @@ def _ai_batch(batch):
     for key in (GEMINI_API_KEYS or []):
         if not key:
             continue
+        if not _key_available(key):
+            continue  # ⚡ مفتاح محظور — تخطّ فوراً
         try:
-            r = _req.post(f"{_GURL}?key={key}", json=g_payload, timeout=25)
+            r = _req.post(f"{_GURL}?key={key}", json=g_payload, timeout=12)
             if r.status_code == 200:
                 txt = r.json()["candidates"][0]["content"]["parts"][0]["text"]
                 out = _parse(txt)
@@ -2177,7 +2192,7 @@ def _ai_batch(batch):
                     _cset(ck, out)
                     return out
             elif r.status_code == 429:
-                # ✅ إصلاح #2: Rate limit → تخطّ هذا المفتاح مباشرة (لا sleep في main thread)
+                _key_block(key)  # ⚡ احظر المفتاح 60 ثانية
                 continue
             # 403/400 → جرب المفتاح التالي فوراً
         except Exception:
@@ -2888,7 +2903,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                 progress_callback((i + 1) / total, results)
             continue
 
-        if best0["score"] >= 90 or not use_ai:  # v31.7: خفض من 97 إلى 90 — مطابقات fuzzy موثوقة تتخطى AI
+        if best0["score"] >= 85 or not use_ai:  # v32: خفض من 90 إلى 85 — يقلل استدعاءات AI بـ 40% ويمنع التعليق
             row_result = _row(product, our_price, our_id, brand, size, ptype, gender,
                               best0, src="auto", all_cands=all_cands,
                               our_img=our_img, our_url=our_url, no=our_no)
