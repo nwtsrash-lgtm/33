@@ -2903,7 +2903,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                 progress_callback((i + 1) / total, results)
             continue
 
-        if best0["score"] >= 85 or not use_ai:  # v32: خفض من 90 إلى 85 — يقلل استدعاءات AI بـ 40% ويمنع التعليق
+        if best0["score"] >= 85:  # ≥85% → مطابقة تلقائية مؤكدة (بطاقة)
             row_result = _row(product, our_price, our_id, brand, size, ptype, gender,
                               best0, src="auto", all_cands=all_cands,
                               our_img=our_img, our_url=our_url, no=our_no)
@@ -2923,7 +2923,7 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
                     score=float(best0.get("score") or 0),
                     مصدر_المطابقة="row_returned_none",
                 ))
-        else:
+        elif use_ai:
             pending.append(dict(
                 product=product, our_price=our_price, our_id=our_id,
                 brand=brand, size=size, ptype=ptype, gender=gender,
@@ -2933,6 +2933,20 @@ def run_full_analysis(our_df, comp_dfs, progress_callback=None, use_ai=True,
             ))
             if len(pending) >= BATCH:
                 _flush()
+        else:
+            # إصلاح المهلة: بلا AI، النطاق الرمادي (60-84%) → مراجعة يدوية
+            # (لا بطاقة على ثقة منخفضة، لا فقدان بيانات). AI يُشغَّل يدوياً على قسم المراجعة.
+            row_result = _row(product, our_price, our_id, brand, size, ptype, gender,
+                              best0, "⚠️ تحت المراجعة", "no_ai_review",
+                              all_cands=all_cands,
+                              our_img=our_img, our_url=our_url, no=our_no)
+            if row_result is not None:
+                results.append(row_result)
+                _cid = _cand_comp_id(best0)
+                if _cid:
+                    _led.mark_state(_cid, CONFIRMED_MATCH,
+                                    reason_code="under_review",
+                                    last_score=float(best0.get("score") or 0))
 
         if progress_callback:
             progress_callback((i + 1) / total, results)
