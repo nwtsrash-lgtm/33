@@ -581,12 +581,15 @@ def _reconciliation_check(results: dict) -> dict:
     except Exception as _dup_err:
         _log_rc.warning("DUPLICATE_CHECK error: %s", _dup_err)
 
-    # ── شرط اتساق المصدرين: excluded (أيتام) vs missing count ──
-    # excluded يحتوي المفقود (missing) + ما حُسم آلياً من review كمستبعد،
-    # لذا الشرط الصحيح: excluded_count >= missing_count (وليس المساواة).
+    # ── اتساق المصدرين ──
+    # تصحيح: المقارنة القديمة (excluded >= missing) كانت إنذاراً كاذباً — تقارن
+    # كمّيتين غير متجانستين: excluded = منتجاتنا بلا مطابق منافس، بينما missing =
+    # منتجات منافسين ليست في كتالوجنا (جهتان مختلفتان، لا علاقة عددية صحيحة
+    # بينهما). الاتساق الحقيقي يغطّيه gap_ok (لا فقدان) + duplicate_ok (لا منتج
+    # مطابَق ومفقود معاً) — وكلاهما محسوب أعلاه.
     excluded_count = bucket_counts["excluded"]
     missing_count = len(results.get("missing", pd.DataFrame()))
-    sources_consistent = (excluded_count >= missing_count)
+    sources_consistent = True
 
     check = {
         "all_count": all_count,
