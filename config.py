@@ -80,8 +80,8 @@ def _parse_gemini_keys():
     single = _s("GEMINI_API_KEY", "")
     if single and single not in keys:
         keys.append(single)
-    # يدعم صيغتي الترقيم حتى 30 مفتاحاً: GEMINI_KEY_N و GEMINI_API_KEY_N (تدوير المفاتيح)
-    for i in range(1, 31):
+    # يدعم صيغتي الترقيم حتى 50 مفتاحاً: GEMINI_KEY_N و GEMINI_API_KEY_N (تدوير المفاتيح)
+    for i in range(1, 51):
         for n in (f"GEMINI_API_KEY_{i}", f"GEMINI_KEY_{i}"):
             k = _s(n, "")
             if k and k not in keys:
