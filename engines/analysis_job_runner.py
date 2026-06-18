@@ -170,6 +170,8 @@ def run_analysis_background_job(
         analysis_df, audit_stats = run_full_analysis(
             our_df, comp_dfs,
             progress_callback=progress_cb,
+            use_ai=False,  # إصلاح المهلة: مطابقة حتمية سريعة (AI داخل الحلقة كان يسبب توقّف 7200s).
+                           # النطاق الرمادي → مراجعة؛ AI يُشغَّل يدوياً على قسم المراجعة لاحقاً.
         )
     except Exception as e:
         traceback.print_exc()
