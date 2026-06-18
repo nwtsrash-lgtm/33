@@ -250,6 +250,34 @@ def run_analysis_background_job(
         _watchdog.cancel()
         return
 
+    # ── تصالح حفظ البيانات: منتج منافس تمّت مطابقته في بطاقة سعرية مؤكّدة
+    #    (🔴/🟢/✅) لا يُعلَن «مفقوداً» أيضاً. يحلّ تعارض المسارين (مطابقة
+    #    run_full_analysis مقابل reconcile) الذي ينتج «مطابق ومفقود معاً». ──
+    try:
+        _card_dec = {"🔴 سعر أعلى", "🟢 سعر أقل", "✅ موافق"}
+        if (not missing_df.empty and "منتج_المنافس" in missing_df.columns
+                and not analysis_df.empty
+                and {"منتج_المنافس", "القرار"} <= set(analysis_df.columns)):
+            _cards = analysis_df[analysis_df["القرار"].astype(str).isin(_card_dec)]
+            _matched_keys = {
+                k for k in _cards["منتج_المنافس"].fillna("").astype(str)
+                .str.strip().str.lower().tolist()
+                if k and k not in ("nan", "—")
+            }
+            if _matched_keys:
+                _mk = missing_df["منتج_المنافس"].fillna("").astype(str).str.strip().str.lower()
+                _before = len(missing_df)
+                missing_df = missing_df[~_mk.isin(_matched_keys)].reset_index(drop=True)
+                _removed = _before - len(missing_df)
+                if _removed:
+                    audit_stats["missing_dedup_vs_matched"] = _removed
+                    _logger.info(
+                        "تصالح المفقودات: أُزيل %d منتج مطابَق من قائمة المفقودة (حفظ البيانات).",
+                        _removed,
+                    )
+    except Exception:
+        _logger.debug("missing-vs-matched reconcile failed", exc_info=True)
+
     try:
         safe_records = safe_results_for_json(analysis_df.to_dict("records"))
         safe_missing = missing_df.to_dict("records") if not missing_df.empty else []
